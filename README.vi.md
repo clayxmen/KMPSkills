@@ -75,7 +75,7 @@ Nếu bạn muốn có giao diện đồ họa GUI trực quan ngay bên trong A
 - **Menu Chuột Phải Sinh Mã Tự Động**: `KMPSkills > New MVI Feature Screen...` (State, Intent, Effect, ViewModel, Screen) và `New Room KMP Entity & DAO...`.
 - **Bộ Kiểm Toán Kiến Trúc**: `Tools > KMPSkills > Run Architecture Doctor` kiểm tra tự động `libs.versions.toml`.
 
-Xem hướng dẫn chi tiết và cách tùy biến tại [`plugins/android-studio`](plugins/android-studio).
+📖 **Xem Cẩm Nang Hướng Dẫn Chi Tiết A-Z**: [USER_GUIDE_ANDROID_STUDIO.vi.md](docs/USER_GUIDE_ANDROID_STUDIO.vi.md) | Thư mục plugin: [`plugins/android-studio`](plugins/android-studio).
 
 ---
 

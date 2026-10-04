@@ -8,6 +8,8 @@
 
 ---
 
+> 📖 **Comprehensive User Guide**: For complete step-by-step instructions with diagrams and troubleshooting, see [**USER_GUIDE_ANDROID_STUDIO.md**](../../docs/USER_GUIDE_ANDROID_STUDIO.md).
+
 ## 🚀 Installation Guide (Install Plugin from Disk)
 
 The compiled, ready-to-install plugin archive is located at:

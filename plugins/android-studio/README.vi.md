@@ -8,7 +8,9 @@
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt Từ File Zip (Install Plugin from Disk)
+> 📖 **Cẩm Nang Hướng Dẫn Sử Dụng A-Z**: Xem tài liệu hướng dẫn có hình minh họa và xử lý lỗi tại [**USER_GUIDE_ANDROID_STUDIO.vi.md**](../../docs/USER_GUIDE_ANDROID_STUDIO.vi.md).
+
+## 🚀 Hướng Dẫn Cài Đặt Nhanh Từ File Zip (Install Plugin from Disk)
 
 Bản cài đặt plugin đã được biên dịch sẵn tại:
 ```text

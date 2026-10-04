@@ -73,7 +73,7 @@ Prefer a native GUI inside Android Studio? Install the pre-compiled **KMPSkills 
 - **Right-Click Code Scaffolder**: `KMPSkills > New MVI Feature Screen...` (State, Intent, Effect, ViewModel, Screen) and `New Room KMP Entity & DAO...`.
 - **Architecture Doctor**: `Tools > KMPSkills > Run Architecture Doctor` audits your `libs.versions.toml`.
 
-For full documentation and screenshots, visit [`plugins/android-studio`](plugins/android-studio).
+📖 **Full Step-by-Step User Guide**: [USER_GUIDE_ANDROID_STUDIO.md](docs/USER_GUIDE_ANDROID_STUDIO.md) | Plugin directory: [`plugins/android-studio`](plugins/android-studio).
 
 ---
 
