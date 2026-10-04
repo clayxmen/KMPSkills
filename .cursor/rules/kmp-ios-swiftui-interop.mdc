@@ -1,0 +1,207 @@
+---
+description: "Master-tier guide for iOS integration with Compose Multiplatform and Kotlin Native. Covers hosting Compose inside SwiftUI (ComposeUIViewController), embedding UIKit views inside Compose (UIKitView), Swift async/await coroutine bridges (SKIE), SafeArea/Dynamic Island insets, and memory leak prevention. Use this skill whenever: 1. Hosting Compose Multiplatform screens inside an existing or new SwiftUI iOS application. 2. Embedding native iOS components (ARKit, MapKit, Camera, Apple Pay) inside Compose using UIKitView. 3. Consuming Kotlin Coroutine Flows and suspend functions natively in Swift with async/await. 4. Managing iOS SafeArea, Notch, and Dynamic Island layout margins. 5. Resolving retain cycles and memory deallocations across the Kotlin/Native ARC boundary. Do NOT use when: 1. Writing pure Android native code (use `kmp-android-native-system-services`). 2. Designing cross-platform Material 3 themes (use `kmp-design-tokens-theme-engine`)."
+globs: ["**/iosMain/**/*.kt","**/*.swift","**/*ViewController.kt"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: 🍎 KMP iOS SwiftUI Interop & Native View Bridging
+> **Domain**: 7. Native Bridges | **Target Files**: `**/iosMain/**/*.kt, **/*.swift, **/*ViewController.kt`
+
+# 🍎 KMP iOS SwiftUI Interop & Native View Bridging
+
+This skill provides an enterprise architectural blueprint for bridging **Compose Multiplatform (CMP)** and **Apple's iOS Ecosystem** (SwiftUI, UIKit, and Kotlin/Native). It covers **Bidirectional View Hosting**, **Swift async/await Coroutine interop**, and **Dynamic Island / SafeArea compliance**.
+
+---
+
+## 🏛️ 1. Bidirectional Interop Architecture
+
+```mermaid
+graph LR
+    subgraph SwiftUI Host
+        SwiftApp["SwiftUI App"] --> UIKRep["UIViewControllerRepresentable"]
+        UIKRep --> ComposeController["ComposeUIViewController { App() }"]
+    end
+
+    subgraph Compose Host
+        CMPView["Compose Screen"] --> UIKitBridge["UIKitView { MKMapView / WKWebView }"]
+        UIKitBridge --> NativeUIView["Native iOS UIView / UIViewController"]
+    end
+```
+
+---
+
+## 📱 2. Hosting Compose inside SwiftUI
+
+### A. Kotlin Controller Factory (`app/shared/src/iosMain/.../MainViewController.kt`)
+```kotlin
+package com.example.app
+
+import androidx.compose.ui.window.ComposeUIViewController
+import platform.UIKit.UIViewController
+
+fun MainViewController(): UIViewController = ComposeUIViewController {
+    App()
+}
+```
+
+### B. SwiftUI Container (`iosApp/iosApp/ContentView.swift`)
+```swift
+import SwiftUI
+import SharedApp
+
+struct ComposeView: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIViewController {
+        MainViewControllerKt.MainViewController()
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        // Handle SwiftUI state updates
+    }
+}
+
+struct ContentView: View {
+    var body: some View {
+        ComposeView()
+            .ignoresSafeArea(.keyboard) // Allow Compose to handle IME animations
+            .ignoresSafeArea(.container, edges: .all) // Edge-to-edge drawing under status bar
+    }
+}
+```
+
+---
+
+## 🗺️ 3. Embedding Native iOS Views inside Compose (`UIKitView`)
+
+When an iOS feature requires a proprietary platform view (such as Apple Maps `MKMapView`, `WKWebView`, or Camera Viewfinder), embed it using `UIKitView`:
+
+```kotlin
+package com.example.app.core.ui.ios
+
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.interop.UIKitView
+import kotlinx.cinterop.ExperimentalForeignApi
+import platform.MapKit.MKCoordinateRegionMakeWithDistance
+import platform.MapKit.MKMapView
+import platform.CoreLocation.CLLocationCoordinate2DMake
+
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+fun NativeAppleMapView(
+    latitude: Double,
+    longitude: Double,
+    modifier: Modifier = Modifier
+) {
+    UIKitView(
+        factory = {
+            MKMapView().apply {
+                showsUserLocation = true
+                val center = CLLocationCoordinate2DMake(latitude, longitude)
+                val region = MKCoordinateRegionMakeWithDistance(center, 1000.0, 1000.0)
+                setRegion(region, animated = false)
+            }
+        },
+        update = { mapView ->
+            val center = CLLocationCoordinate2DMake(latitude, longitude)
+            val region = MKCoordinateRegionMakeWithDistance(center, 1000.0, 1000.0)
+            mapView.setRegion(region, animated = true)
+        },
+        modifier = modifier.fillMaxSize()
+    )
+}
+```
+
+---
+
+## 🔄 4. Consuming Kotlin Coroutines in Swift (async/await)
+
+Modern Kotlin Multiplatform exports suspend functions as Swift `async/await` and Flows as `AsyncSequence` when using the **SKIE plugin**:
+
+### Gradle Setup (`app/shared/build.gradle.kts`)
+```kotlin
+plugins {
+    id("co.touchlab.skie") version "0.9.3"
+}
+```
+
+### Swift Call Site (`iosApp/iosApp/ProductViewModelBridge.swift`)
+```swift
+import SwiftUI
+import SharedApp
+
+@MainActor
+class SwiftProductObserver: ObservableObject {
+    @Published var products: [Product] = []
+    private var observeTask: Task<Void, Never>?
+
+    func startObserving(repository: ProductRepository) {
+        observeTask = Task {
+            // SKIE allows direct for-await-in iteration over Kotlin Flows!
+            for await productList in repository.observeProducts() {
+                self.products = productList
+            }
+        }
+    }
+
+    func refresh(repository: ProductRepository) async {
+        do {
+            try await repository.refreshProducts()
+        } catch {
+            print("Failed to sync products: \(error)")
+        }
+    }
+
+    deinit {
+        observeTask?.cancel()
+    }
+}
+```
+
+---
+
+## 🏝️ 5. SafeArea & Dynamic Island Layout Compliance
+
+In Compose Multiplatform on iOS, the top status bar and bottom home indicator are represented via `WindowInsets`:
+
+```kotlin
+package com.example.app.core.ui.ios
+
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun IosSafeScreenContainer(
+    content: @Composable () -> Unit
+) {
+    Scaffold(
+        // Automatically accommodates Dynamic Island (44-59dp) and Home Indicator bar (34dp)
+        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp)
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets(innerPadding.calculateLeftPadding(androidx.compose.ui.unit.LayoutDirection.Ltr), innerPadding.calculateTopPadding(), innerPadding.calculateRightPadding(androidx.compose.ui.unit.LayoutDirection.Ltr), innerPadding.calculateBottomPadding()))
+        ) {
+            content()
+        }
+    }
+}
+```
+
+---
+
+## 🚫 6. iOS Interop Anti-Patterns & Memory Leaks
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Retain Cycles in Callbacks** | Passing strong Swift `self` references into Kotlin listener closures prevents `UIViewController` from deallocating. | Always capture `[weak self]` in Swift closures bound to Kotlin instances. |
+| **Forgetting to cancel Swift Tasks** | Leaving `for await event in flow` running after SwiftUI view dismisses leaks background coroutines. | Store `Task` reference and call `task.cancel()` in `onDisappear` or `deinit`. |
+| **Heavy UI operations in `UIKitView.update`** | Instantiating expensive objects inside `update` triggers allocations on every Compose recomposition. | Keep `update` lightweight; only assign mutated properties. |
+| **Blocking the Darwin Main RunLoop** | Running synchronous blocking Kotlin code blocks UIKit gesture recognizers and freezes scrolling. | Always dispatch heavy calculations to Kotlin `Dispatchers.Default` or `Dispatchers.IO`. |

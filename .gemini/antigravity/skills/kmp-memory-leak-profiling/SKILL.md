@@ -1,0 +1,163 @@
+---
+name: kmp-memory-leak-profiling
+description: |
+  Master-tier guide for auditing, profiling, and eliminating memory leaks in Kotlin Multiplatform.
+  Covers Kotlin/Native Automatic Reference Counting (ARC) retain cycles, LeakCanary Android integration,
+  Coroutine Scope lifecycle governance, and Desktop/Web disposal patterns.
+
+  Use this skill whenever:
+    1. Diagnosing OutOfMemoryErrors (OOM) or app memory bloat across Android and iOS.
+    2. Preventing retain cycles between Swift delegates and Kotlin/Native classes.
+    3. Setting up LeakCanary in Android debug builds.
+    4. Auditing long-lived CoroutineScopes and Flow subscriptions for dangling references.
+    5. Implementing DisposableEffect cleanup hooks in Compose Multiplatform.
+
+  Do NOT use when:
+    1. Optimizing UI recomposition render cycles (use `kmp-compose-compiler-recomposition-optimization`).
+    2. Configuring ProGuard or R8 code shrinking (use `kmp-baseline-profiles-r8-shrinking`).
+license: MIT
+metadata:
+  version: v1.0
+  framework: "Kotlin/Native ARC & LeakCanary / Memory Profiling"
+  architect_tier: "Principal Systems Performance Architect & Engineer"
+---
+
+# 🧠 KMP Memory Leak Profiling & Kotlin/Native ARC Safety
+
+This skill provides an enterprise architectural blueprint for detecting, profiling, and eliminating memory leaks in **Kotlin Multiplatform (KMP)** applications across **Android (JVM GC)** and **iOS (Kotlin/Native ARC)**.
+
+---
+
+## 🔬 1. JVM Garbage Collection vs. Kotlin/Native ARC
+
+```mermaid
+graph TD
+    subgraph Android / Desktop JVM
+        GC["Mark-and-Sweep Garbage Collector"]
+        GC --> CyclicalJVM["Handles cyclic references automatically,<br/>BUT leaks if tied to Activity Context or Static roots."]
+    end
+
+    subgraph iOS Kotlin/Native
+        ARC["Automatic Reference Counting (ARC)"]
+        ARC --> RetainCycle["❌ RETAIN CYCLE DISASTER:<br/>If Object A holds B and Object B holds A strongly,<br/>reference count NEVER drops to 0. Leaks memory permanently!"]
+    end
+```
+
+---
+
+## 🚫 2. Breaking Retain Cycles in Kotlin/Native with `WeakReference`
+
+When passing listeners or callbacks across the Kotlin/Native boundary, use `WeakReference` to break retain cycles:
+
+```kotlin
+package com.example.app.core.memory
+
+import kotlin.experimental.ExperimentalNativeApi
+import kotlin.native.ref.WeakReference
+
+interface DownloadListener {
+    fun onProgress(percent: Int)
+}
+
+class DownloadManager {
+    // ❌ BAD: Strong reference causes retain cycle if listener references manager
+    // var listener: DownloadListener? = null
+
+    // ✅ OPTIMIZED: WeakReference allows GC/ARC to deallocate listener cleanly
+    @OptIn(ExperimentalNativeApi::class)
+    private var listenerRef: WeakReference<DownloadListener>? = null
+
+    @OptIn(ExperimentalNativeApi::class)
+    fun setListener(listener: DownloadListener) {
+        listenerRef = WeakReference(listener)
+    }
+
+    @OptIn(ExperimentalNativeApi::class)
+    fun notifyProgress(percent: Int) {
+        listenerRef?.get()?.onProgress(percent)
+    }
+}
+```
+
+---
+
+## 🔍 3. Android LeakCanary Setup for Automated Detection
+
+In `gradle/libs.versions.toml`:
+```toml
+[libraries]
+leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version = "2.14" }
+```
+
+In `app/androidApp/build.gradle.kts`:
+```kotlin
+dependencies {
+    // LeakCanary automatically installs itself in debug builds via ContentProvider
+    debugImplementation(libs.leakcanary.android)
+}
+```
+
+---
+
+## 🧹 4. CoroutineScope Lifecycle Cleanup
+
+Never use `GlobalScope` or unmanaged `CoroutineScope` in ViewModels or Services. Always cancel jobs on disposal:
+
+```kotlin
+package com.example.app.core.memory
+
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import java.io.Closeable
+
+class ManagedSessionScope : Closeable {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    override fun close() {
+        // Cancels all running coroutines and unbinds all active Flow subscriptions
+        scope.cancel()
+    }
+}
+```
+
+---
+
+## 📱 5. Compose Multiplatform `DisposableEffect` Resource Cleanup
+
+Ensure native system listeners, sensor subscriptions, or audio players are unbound when a Composable leaves the composition:
+
+```kotlin
+package com.example.app.core.ui
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+
+@Composable
+fun SensorObserverScreen(
+    sensorManager: Any,
+    onReadingUpdated: (Float) -> Unit
+) {
+    DisposableEffect(sensorManager) {
+        // 1. Subscribe to sensor updates on enter
+        println("Registering hardware sensor listener")
+
+        onDispose {
+            // 2. Unsubscribe cleanly when user navigates away or screen closes
+            println("Unregistering hardware sensor listener to prevent memory leak")
+        }
+    }
+}
+```
+
+---
+
+## 🚫 6. Memory Leak Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Passing Android `Activity` to KMP Common** | Holding an Activity reference in a common singleton prevents the Activity from being destroyed on rotation. | Only pass `ApplicationContext` or abstract system actions behind a common interface. |
+| **Strong Swift Closure references** | Swift closure capturing `self` strongly passed into Kotlin observer creates uncollectible retain cycles in ARC. | Always use `[weak self]` in Swift closures passed to Kotlin. |
+| **Dangling Flow Subscriptions** | Calling `flow.collect()` on `GlobalScope` keeps collecting and processing events even after the UI is closed. | Collect Flows within `viewModelScope` or via `LaunchedEffect`. |
+| **Static Singleton Cache without Bounds** | Storing items in an unbounded `mutableListOf()` without an LRU eviction strategy eventually causes OOM. | Use an in-memory LRU Cache with maximum entry limits. |

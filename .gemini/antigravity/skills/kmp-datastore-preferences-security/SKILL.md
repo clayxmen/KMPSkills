@@ -1,0 +1,317 @@
+---
+name: kmp-datastore-preferences-security
+description: |
+  Master-tier guide for key-value persistence and sensitive credential storage in Kotlin Multiplatform.
+  Combines official Jetpack DataStore KMP (Preferences) with hardware-backed Secure Vault encryption
+  (Android Keystore + AES-256-GCM and Apple Keychain Services).
+
+  Use this skill whenever:
+    1. Persisting non-relational user preferences (Theme mode, onboarding flags, locale settings).
+    2. Storing sensitive security artifacts (JWT access tokens, refresh tokens, encryption keys, biometric secrets).
+    3. Setting up cross-platform DataStore factories with expect/actual filesystem paths.
+    4. Reading and writing reactive settings streams via Coroutines Flow.
+    5. Eliminating cleartext credential exposure and SharedPreferences thread locks.
+
+  Do NOT use when:
+    1. Querying relational tables or relational collections (use `kmp-offline-room-database`).
+    2. Managing high-frequency in-memory caches (use memory cache LRU).
+license: MIT
+metadata:
+  version: v1.0
+  framework: "DataStore KMP 1.1+ & Hardware KeyStore / Keychain"
+  architect_tier: "Principal Security Architect & Mobile Engineer"
+---
+
+# 🔐 KMP DataStore Preferences & Secure Storage Vault
+
+This skill provides an enterprise architectural blueprint for key-value data storage and hardware-backed cryptographic credential management across **Android, iOS, Desktop (JVM), and Web (Wasm)**. It pairs **Jetpack DataStore KMP** for reactive settings with a **Hardware-Backed Secure Vault** for sensitive tokens.
+
+---
+
+## 🛡️ 1. Two-Tier Storage Topology
+
+```mermaid
+graph TD
+    AppLayer["Application / Feature Layer"]
+    
+    AppLayer --> Tier1["Tier 1: Non-Sensitive App Settings<br/>(Jetpack DataStore Preferences)<br/>Theme, Locale, Onboarding Flags, UI State"]
+    AppLayer --> Tier2["Tier 2: Sensitive Cryptographic Vault<br/>(SecureStorage Interface)<br/>JWT Bearer Tokens, Refresh Tokens, API Secrets"]
+    
+    Tier1 --> DSFile["Cross-Platform Preferences File<br/>(.preferences_pb)"]
+    
+    Tier2 --> AndroidVault["Android: EncryptedSharedPreferences / KeyStore AES-GCM"]
+    Tier2 --> IOSVault["iOS: Apple Keychain Services (kSecClassGenericPassword)"]
+    Tier2 --> DesktopVault["Desktop: OS Keyring / Protected Storage"]
+```
+
+---
+
+## 📦 2. Dependencies & File System Path Factory
+
+In `gradle/libs.versions.toml`:
+```toml
+[libraries]
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences-core", version = "1.1.2" }
+```
+
+### Path Factory (`expect/actual`)
+
+#### `commonMain/kotlin/.../DataStorePath.kt`
+```kotlin
+package com.example.app.core.storage
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
+import okio.Path.Companion.toPath
+
+expect fun resolveDataStorePath(): String
+
+fun createDataStore(): DataStore<Preferences> =
+    PreferenceDataStoreFactory.createWithPath(
+        produceFile = { resolveDataStorePath().toPath() }
+    )
+```
+
+#### `androidMain/kotlin/.../DataStorePath.android.kt`
+```kotlin
+package com.example.app.core.storage
+
+import android.content.Context
+
+lateinit var applicationContext: Context
+
+actual fun resolveDataStorePath(): String {
+    return applicationContext.filesDir.resolve("app_settings.preferences_pb").absolutePath
+}
+```
+
+#### `iosMain/kotlin/.../DataStorePath.ios.kt`
+```kotlin
+package com.example.app.core.storage
+
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSUserDomainMask
+
+actual fun resolveDataStorePath(): String {
+    val documentDirectory = NSFileManager.defaultManager.URLForDirectory(
+        directory = NSDocumentDirectory,
+        inDomain = NSUserDomainMask,
+        appropriateForURL = null,
+        create = false,
+        error = null
+    )
+    return "${documentDirectory?.path}/app_settings.preferences_pb"
+}
+```
+
+#### `desktopMain/kotlin/.../DataStorePath.desktop.kt`
+```kotlin
+package com.example.app.core.storage
+
+import java.io.File
+
+actual fun resolveDataStorePath(): String {
+    val userHome = System.getProperty("user.home")
+    val appDir = File(userHome, ".mykmpapp").apply { if (!exists()) mkdirs() }
+    return File(appDir, "app_settings.preferences_pb").absolutePath
+}
+```
+
+---
+
+## ⚙️ 3. Reactive Settings Repository (`DataStore`)
+
+```kotlin
+package com.example.app.core.storage
+
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
+import java.io.IOException
+
+enum class AppThemeMode { SYSTEM, LIGHT, DARK }
+
+class UserPreferencesRepository(
+    private val dataStore: DataStore<Preferences>
+) {
+    private object Keys {
+        val THEME_MODE = stringPreferencesKey("key_theme_mode")
+        val ONBOARDING_COMPLETED = booleanPreferencesKey("key_onboarding_completed")
+    }
+
+    val themeMode: Flow<AppThemeMode> = dataStore.data
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
+        .map { preferences ->
+            val themeString = preferences[Keys.THEME_MODE] ?: AppThemeMode.SYSTEM.name
+            runCatching { AppThemeMode.valueOf(themeString) }.getOrDefault(AppThemeMode.SYSTEM)
+        }
+
+    val isOnboardingCompleted: Flow<Boolean> = dataStore.data
+        .catch { exception ->
+            if (exception is IOException) emit(emptyPreferences()) else throw exception
+        }
+        .map { preferences ->
+            preferences[Keys.ONBOARDING_COMPLETED] ?: false
+        }
+
+    suspend fun setThemeMode(mode: AppThemeMode) {
+        dataStore.edit { preferences ->
+            preferences[Keys.THEME_MODE] = mode.name
+        }
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[Keys.ONBOARDING_COMPLETED] = completed
+        }
+    }
+}
+```
+
+---
+
+## 🔒 4. Hardware-Backed Secure Storage Vault (`expect/actual`)
+
+Never store access tokens or user passwords in DataStore preferences files. Use hardware-backed secure storage:
+
+### `commonMain/kotlin/.../SecureStorage.kt`
+```kotlin
+package com.example.app.core.storage
+
+interface SecureStorage {
+    suspend fun set(key: String, value: String)
+    suspend fun get(key: String): String?
+    suspend fun remove(key: String)
+    suspend fun clear()
+}
+
+expect fun createSecureStorage(): SecureStorage
+```
+
+### `androidMain/kotlin/.../SecureStorage.android.kt`
+```kotlin
+package com.example.app.core.storage
+
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class AndroidSecureStorage : SecureStorage {
+    private val masterKey = MasterKey.Builder(applicationContext)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val sharedPreferences = EncryptedSharedPreferences.create(
+        applicationContext,
+        "secure_vault",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    override suspend fun set(key: String, value: String) = withContext(Dispatchers.IO) {
+        sharedPreferences.edit().putString(key, value).apply()
+    }
+
+    override suspend fun get(key: String): String? = withContext(Dispatchers.IO) {
+        sharedPreferences.getString(key, null)
+    }
+
+    override suspend fun remove(key: String) = withContext(Dispatchers.IO) {
+        sharedPreferences.edit().remove(key).apply()
+    }
+
+    override suspend fun clear() = withContext(Dispatchers.IO) {
+        sharedPreferences.edit().clear().apply()
+    }
+}
+
+actual fun createSecureStorage(): SecureStorage = AndroidSecureStorage()
+```
+
+### `iosMain/kotlin/.../SecureStorage.ios.kt`
+```kotlin
+package com.example.app.core.storage
+
+import kotlinx.cinterop.*
+import platform.CoreFoundation.*
+import platform.Foundation.*
+import platform.Security.*
+
+class IosKeychainStorage : SecureStorage {
+
+    @OptIn(ExperimentalForeignApi::class)
+    override suspend fun set(key: String, value: String) {
+        val data = (value as NSString).dataUsingEncoding(NSUTF8StringEncoding) ?: return
+
+        // Delete any existing key prior to insert
+        remove(key)
+
+        val query = CFDictionaryCreateMutable(null, 4, null, null)
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        CFDictionaryAddValue(query, kSecAttrAccount, (key as NSString).UTF8String)
+        CFDictionaryAddValue(query, kSecValueData, CFBridgingRetain(data))
+        CFDictionaryAddValue(query, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlock)
+
+        SecItemAdd(query, null)
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    override suspend fun get(key: String): String? {
+        val query = CFDictionaryCreateMutable(null, 4, null, null)
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        CFDictionaryAddValue(query, kSecAttrAccount, (key as NSString).UTF8String)
+        CFDictionaryAddValue(query, kSecReturnData, kCFBooleanTrue)
+        CFDictionaryAddValue(query, kSecMatchLimit, kSecMatchLimitOne)
+
+        memScoped {
+            val result = alloc<CFTypeRefVar>()
+            val status = SecItemCopyMatching(query, result.ptr)
+            if (status == errSecSuccess) {
+                val data = CFBridgingRelease(result.value) as? NSData ?: return null
+                return NSString.create(data = data, encoding = NSUTF8StringEncoding) as? String
+            }
+        }
+        return null
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    override suspend fun remove(key: String) {
+        val query = CFDictionaryCreateMutable(null, 2, null, null)
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        CFDictionaryAddValue(query, kSecAttrAccount, (key as NSString).UTF8String)
+        SecItemDelete(query)
+    }
+
+    @OptIn(ExperimentalForeignApi::class)
+    override suspend fun clear() {
+        val query = CFDictionaryCreateMutable(null, 1, null, null)
+        CFDictionaryAddValue(query, kSecClass, kSecClassGenericPassword)
+        SecItemDelete(query)
+    }
+}
+
+actual fun createSecureStorage(): SecureStorage = IosKeychainStorage()
+```
+
+---
+
+## 🚫 5. Storage & Security Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Calling `runBlocking` on DataStore** | Blocks the calling thread, causing UI freezes and potential Android ANRs. | Collect `Flow` asynchronously using `collectAsStateWithLifecycle` or `viewModelScope.launch`. |
+| **Storing JWT in Plain DataStore** | Plain DataStore `.preferences_pb` files can be extracted from unencrypted backups or rooted devices. | Store sensitive authentication tokens in hardware-backed `SecureStorage` (KeyStore / Keychain). |
+| **Re-instantiating DataStore multiple times** | Creating more than one `DataStore` instance for the same file throws `IllegalStateException: There are multiple DataStores active for the same file`. | Inject `DataStore<Preferences>` as a strict singleton via Koin. |
+| **Ignoring IO Exceptions in Flow** | Uncaught disk corruption or file access errors terminate the Flow stream permanently. | Always chain `.catch { emit(emptyPreferences()) }` on `dataStore.data`. |

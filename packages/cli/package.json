@@ -1,0 +1,45 @@
+{
+  "name": "kmp-skills",
+  "version": "1.0.0",
+  "description": "Production-grade AI skills, architectural rules, and context generator for Android Native & Kotlin Multiplatform projects.",
+  "keywords": [
+    "kmp",
+    "kotlin-multiplatform",
+    "android",
+    "compose-multiplatform",
+    "cursor-rules",
+    "copilot-instructions",
+    "antigravity",
+    "ai-coding-assistant",
+    "mvi",
+    "room-kmp",
+    "ktor"
+  ],
+  "author": "clayxmen",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "kmp-skills": "./bin/kmp-skills.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "README.vi.md"
+  ],
+  "scripts": {
+    "build:skills": "node scripts/generate-skills-data.mjs",
+    "build": "npm run build:skills && tsc",
+    "watch": "tsc -w",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "typescript": "^5.7.3"
+  }
+}

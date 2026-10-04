@@ -1,0 +1,210 @@
+---
+description: "Master-tier guide for accelerating app startup time (< 400ms) and optimizing release APK/AAB sizes. Covers Android Baseline Profile generation via Macrobenchmark, ProGuard/R8 code shrinking for KMP dependencies (Kotlinx Serialization, Ktor, Room, Koin), and DEX optimization. Use this skill whenever: 1. Reducing Android app cold startup latency by up to 40%. 2. Generating Baseline Profiles with Macrobenchmark rules. 3. Configuring R8 / ProGuard rules for Kotlin Multiplatform libraries to prevent release crashes. 4. Shrinking binary sizes (APK/AAB/MSI) and stripping unused code/resources. 5. Benchmarking frame timing and startup performance quantitatively. Do NOT use when: 1. Writing unit test assertions (use `kmp-testing-mocking-turbines`). 2. Designing UI animations (use `kmp-animation-motion-graphics`)."
+globs: ["**/benchmark/**/*.kt","**/proguard-rules.pro"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: 🚀 KMP Baseline Profiles, R8 Optimization & Startup Speed
+> **Domain**: 8. Performance & Memory | **Target Files**: `**/benchmark/**/*.kt, **/proguard-rules.pro`
+
+# 🚀 KMP Baseline Profiles, R8 Optimization & Startup Speed
+
+This skill provides an enterprise architectural blueprint for achieving **sub-400ms cold startup times** and **minimal release binary sizes** in **Kotlin Multiplatform (KMP)** and **Android** using **Baseline Profiles** and **R8 code shrinking**.
+
+---
+
+## ⚡ 1. The Baseline Profile Compilation Pipeline
+
+Without Baseline Profiles, Android uses Just-In-Time (JIT) compilation during app launch, causing dropped frames and slow initialization. Baseline Profiles pre-compile hot paths to machine code Ahead-Of-Time (AOT):
+
+```mermaid
+graph LR
+    subgraph Without Baseline Profile
+        DEX1["DEX Bytecode"] --> JIT["Runtime JIT Interpreter (Laggy, 1500ms Startup)"]
+    end
+
+    subgraph With Baseline Profile
+        BP["baseline-prof.txt"] --> AOT["Installation-time AOT Compiler"] --> MachineCode["Native Machine Code (< 400ms Startup!)"]
+    end
+```
+
+---
+
+## 🎯 2. Generating Baseline Profiles with Macrobenchmark
+
+### A. Add Baseline Profile Plugin (`gradle/libs.versions.toml`)
+```toml
+[plugins]
+baselineprofile = { id = "androidx.baselineprofile", version = "1.3.3" }
+```
+
+In `app/androidApp/build.gradle.kts`:
+```kotlin
+plugins {
+    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.baselineprofile)
+}
+
+baselineProfile {
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+}
+```
+
+### B. The Benchmark Rule (`baselineprofile/src/main/kotlin/.../BaselineProfileGenerator.kt`)
+```kotlin
+package com.example.benchmark
+
+import androidx.benchmark.macro.junit4.BaselineProfileRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class BaselineProfileGenerator {
+
+    @get:Rule
+    val baselineRule = BaselineProfileRule()
+
+    @Test
+    fun generateBaselineProfile() = baselineRule.collect(
+        packageName = "com.example.app",
+        includeInStartupProfile = true
+    ) {
+        // 1. Measure cold app launch
+        pressHome()
+        startActivityAndWait()
+
+        // 2. Exercise critical user journeys to include in AOT profile
+        // e.g. Scroll catalog list
+    }
+}
+```
+
+Generate the profile with Gradle:
+```bash
+./gradlew :app:androidApp:generateBaselineProfile
+```
+
+---
+
+## 🛡️ 3. Production R8 & ProGuard Rules for KMP Dependencies
+
+Enable code and resource shrinking in `app/androidApp/build.gradle.kts`:
+
+```kotlin
+android {
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+}
+```
+
+### `app/androidApp/proguard-rules.pro` Master Config
+```proguard
+# ---------------------------------------------------------------------------
+# Kotlin Multiplatform Core & Coroutines
+# ---------------------------------------------------------------------------
+-keepattributes *Annotation*, InnerClasses, Signature, Exception, SourceFile, LineNumberTable
+
+-keepclassmembers class kotlinx.coroutines.** {
+    volatile <fields>;
+}
+
+# ---------------------------------------------------------------------------
+# Kotlinx Serialization (Prevent Stripping Polymorphic Serializers)
+# ---------------------------------------------------------------------------
+-keepnames class kotlinx.serialization.json.** { *; }
+-keepclassmembers class * {
+    *** Companion;
+}
+-keepclasseswithmembers class * {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-keepclassmembers class * implements kotlinx.serialization.KSerializer {
+    <fields>;
+    <methods>;
+}
+
+# ---------------------------------------------------------------------------
+# Ktor HTTP Client 3.x
+# ---------------------------------------------------------------------------
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+
+# ---------------------------------------------------------------------------
+# AndroidX Room KMP 2.7+
+# ---------------------------------------------------------------------------
+-keep class * extends androidx.room.RoomDatabase
+-keep @androidx.room.Dao interface * { *; }
+-keep class * implements androidx.room.RoomDatabaseConstructor { *; }
+
+# ---------------------------------------------------------------------------
+# Koin Dependency Injection
+# ---------------------------------------------------------------------------
+-keep class org.koin.** { *; }
+-dontwarn org.koin.**
+
+# ---------------------------------------------------------------------------
+# Coil 3.x Image Loading
+# ---------------------------------------------------------------------------
+-keep class coil3.** { *; }
+-dontwarn coil3.**
+```
+
+---
+
+## ⏱️ 4. Measuring Cold Startup Latency
+
+Measure startup performance quantitatively with Android Macrobenchmark:
+
+```kotlin
+package com.example.benchmark
+
+import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.StartupMode
+import androidx.benchmark.macro.StartupTimingMetric
+import androidx.benchmark.macro.junit4.MacrobenchmarkRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class ColdStartupBenchmark {
+
+    @get:Rule
+    val benchmarkRule = MacrobenchmarkRule()
+
+    @Test
+    fun benchmarkStartupWithBaselineProfiles() = benchmarkRule.measureRepeated(
+        packageName = "com.example.app",
+        metrics = listOf(StartupTimingMetric()),
+        compilationMode = CompilationMode.Partial(), // Simulates Baseline Profile compilation
+        iterations = 5,
+        startupMode = StartupMode.COLD
+    ) {
+        pressHome()
+        startActivityAndWait()
+    }
+}
+```
+
+---
+
+## 🚫 5. Startup & R8 Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **R8 Stripping Serializers** | Custom `@Serializable` companion functions stripped in release builds cause silent JSON deserialization crashes. | Add `-keepclasseswithmembers class * { kotlinx.serialization.KSerializer serializer(...); }`. |
+| **Heavy Work in `Application.onCreate`** | Initializing databases, analytics, and network calls synchronously on app startup freezes the UI thread. | Defer initialization with Kotlin Coroutines or Android Jetpack App Startup. |
+| **Omitting Baseline Profiles** | Forces the Android runtime to interpret raw DEX during launch, inflating cold start time to 1.5s - 2.5s. | Generate and bundle `baseline-prof.txt` with Macrobenchmark. |
+| **Disabling R8 Optimization** | Shipping release builds without `isMinifyEnabled = true` inflates APK size by 200-400% and slows down DEX loading. | Always enable `isMinifyEnabled = true` with tested ProGuard rules. |

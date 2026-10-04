@@ -1,0 +1,264 @@
+---
+description: "Master-tier guide for implementing resilient, real-time bidirectional streaming in Kotlin Multiplatform using Ktor WebSockets and Server-Sent Events (SSE). Features state machine connection lifecycles, automated exponential backoff reconnection with jitter, heartbeat ping/pong health checks, and reactive Coroutine Flow broadcasting. Use this skill whenever: 1. Implementing live real-time chat, multiplayer state updates, or push notifications in KMP. 2. Streaming continuous server events or generative AI LLM tokens with Ktor SSE. 3. Building auto-reconnecting WebSocket clients that survive mobile cellular handoffs and background suspensions. 4. Serializing and deserializing WebSocket JSON frames with Kotlinx Serialization. 5. Managing connection state machines (Disconnected, Connecting, Connected, Reconnecting) in Compose UI. Do NOT use when: 1. Performing standard request-response REST queries (use `kmp-ktor-network-client`). 2. Synchronizing offline database mutations (use `kmp-offline-sync-engine`)."
+globs: ["**/*Socket*.kt","**/*Sse*.kt","**/*Stream*.kt"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: ⚡ KMP Real-Time WebSocket & Server-Sent Events (SSE) Streaming
+> **Domain**: 6. Networking & Sync | **Target Files**: `**/*Socket*.kt, **/*Sse*.kt, **/*Stream*.kt`
+
+# ⚡ KMP Real-Time WebSocket & Server-Sent Events (SSE) Streaming
+
+This skill provides an enterprise architectural blueprint for building **fault-tolerant, real-time streaming engines** across **Android, iOS, Desktop (JVM), and Web (Wasm)** using **Ktor WebSockets** and **Ktor SSE 3.x**.
+
+---
+
+## 🛰️ 1. Real-Time Connection State Machine
+
+Mobile networks frequently drop TCP connections during cell tower handoffs or screen sleeps. The client manages an autonomous state machine with **heartbeat monitoring** and **jittered exponential backoff**:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Disconnected
+    Disconnected --> Connecting : connect()
+    Connecting --> Connected : Socket Opened & Handshake OK
+    Connecting --> Reconnecting : Socket Handshake Failed
+    
+    Connected --> Connected : Heartbeat Ping / Pong OK
+    Connected --> Reconnecting : TCP Drop / Missed Heartbeat / EOF
+    Connected --> Disconnected : disconnect() (User Logout)
+    
+    Reconnecting --> Connecting : Backoff Timer Elapsed (Delay + Jitter)
+    Reconnecting --> Disconnected : Max Retries Exceeded / Permanent Auth Error
+```
+
+---
+
+## 📦 2. Dependencies Setup (`libs.versions.toml`)
+
+```toml
+[libraries]
+ktor-client-websockets = { module = "io.ktor:ktor-client-websockets", version = "3.0.3" }
+ktor-client-sse = { module = "io.ktor:ktor-client-sse", version = "3.0.3" }
+```
+
+Install plugins into `HttpClient`:
+```kotlin
+HttpClient(engine) {
+    install(WebSockets) {
+        pingIntervalMillis = 15_000 // Automated Heartbeat Ping every 15s to keep NAT tunnels alive
+        maxFrameSize = Long.MAX_VALUE
+    }
+    install(SSE)
+}
+```
+
+---
+
+## 📡 3. The Autonomous `RealtimeWebSocketClient`
+
+```kotlin
+package com.example.app.core.realtime
+
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
+import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.websocket.Frame
+import io.ktor.websocket.close
+import io.ktor.websocket.readText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.random.Random
+
+sealed interface ConnectionState {
+    data object Disconnected : ConnectionState
+    data object Connecting : ConnectionState
+    data object Connected : ConnectionState
+    data class Reconnecting(val attempt: Int, val delayMs: Long) : ConnectionState
+}
+
+@Serializable
+data class SocketMessage(
+    val type: String,
+    val payload: String,
+    val timestamp: Long = 0L
+)
+
+class RealtimeWebSocketClient(
+    private val httpClient: HttpClient,
+    private val scope: CoroutineScope,
+    private val socketUrl: String = "wss://api.example.com/v1/realtime"
+) {
+    private val json = Json { ignoreUnknownKeys = true }
+    private var connectionJob: Job? = null
+    private var activeSession: DefaultClientWebSocketSession? = null
+
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    private val _incomingEvents = MutableSharedFlow<SocketMessage>(extraBufferCapacity = 64)
+    val incomingEvents: SharedFlow<SocketMessage> = _incomingEvents.asSharedFlow()
+
+    fun connect() {
+        if (connectionJob?.isActive == true) return
+
+        connectionJob = scope.launch {
+            var attempt = 0
+            while (isActive) {
+                try {
+                    _connectionState.value = ConnectionState.Connecting
+
+                    httpClient.webSocket(urlString = socketUrl) {
+                        activeSession = this
+                        _connectionState.value = ConnectionState.Connected
+                        attempt = 0 // Reset attempt counter upon successful handshake
+
+                        // Process incoming frames loop
+                        for (frame in incoming) {
+                            if (frame is Frame.Text) {
+                                val text = frame.readText()
+                                runCatching {
+                                    val message = json.decodeFromString<SocketMessage>(text)
+                                    _incomingEvents.tryEmit(message)
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    activeSession = null
+                }
+
+                // If loop exited, connection was dropped or failed
+                attempt++
+                val baseDelay = min(30_000L, (2.0.pow(attempt) * 1000).toLong())
+                val jitter = Random.nextLong(0, 1000)
+                val totalDelay = baseDelay + jitter
+
+                _connectionState.value = ConnectionState.Reconnecting(attempt, totalDelay)
+                delay(totalDelay)
+            }
+        }
+    }
+
+    suspend fun sendMessage(message: SocketMessage): Result<Unit> {
+        return runCatching {
+            val session = activeSession ?: throw IllegalStateException("WebSocket is not connected")
+            val payloadText = json.encodeToString(message)
+            session.send(Frame.Text(payloadText))
+        }
+    }
+
+    fun disconnect() {
+        connectionJob?.cancel()
+        connectionJob = null
+        scope.launch {
+            runCatching { activeSession?.close() }
+            activeSession = null
+            _connectionState.value = ConnectionState.Disconnected
+        }
+    }
+}
+```
+
+---
+
+## 🌊 4. Server-Sent Events (SSE) Streaming Client
+
+For unidirectional real-time data feeds (e.g. Live telemetry or LLM token streaming):
+
+```kotlin
+package com.example.app.core.realtime
+
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.sse.sse
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+
+class SseStreamClient(private val httpClient: HttpClient) {
+
+    fun streamAiTokens(prompt: String): Flow<String> = flow {
+        httpClient.sse("https://api.example.com/v1/ai/generate?prompt=$prompt") {
+            while (true) {
+                incoming.collect { event ->
+                    event.data?.let { token ->
+                        emit(token)
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+---
+
+## 📱 5. Compose Multiplatform UI State Integration
+
+```kotlin
+package com.example.app.core.realtime
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
+@Composable
+fun ConnectionStatusIndicator(
+    realtimeClient: RealtimeWebSocketClient,
+    modifier: Modifier = Modifier
+) {
+    val state by realtimeClient.connectionState.collectAsStateWithLifecycle()
+
+    val (color, text) = when (state) {
+        ConnectionState.Connected -> Color(0xFF16A34A) to "Live"
+        ConnectionState.Connecting -> Color(0xFFEAB308) to "Connecting..."
+        is ConnectionState.Reconnecting -> Color(0xFFF97316) to "Reconnecting..."
+        ConnectionState.Disconnected -> Color(0xFFDC2626) to "Offline"
+    }
+
+    Row(
+        modifier = modifier.padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(color, shape = CircleShape)
+        )
+        Text(text)
+    }
+}
+```
+
+---
+
+## 🚫 6. Real-Time Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Omitting Heartbeat Pings** | Mobile cellular carriers silently kill idle TCP sockets after 30-60s of inactivity without sending TCP FIN packets. | Enable `pingIntervalMillis = 15_000` to keep carrier NAT mappings warm. |
+| **Fixed Delay Reconnection** | Hundreds of clients reconnecting simultaneously after a server reboot cause a "Thundering Herd" DDoS. | Always add randomized jitter: `(2^attempt * 1000) + Random(0, 1000)ms`. |
+| **Unbounded Frame Channels** | Buffering unlimited WebSocket frames while the app is in the background exhausts mobile RAM. | Use `MutableSharedFlow(extraBufferCapacity = 64)` with `BufferOverflow.DROP_OLDEST`. |
+| **Blocking on `session.send`** | Sending data when the socket is in a half-closed state hangs the calling coroutine forever. | Check `activeSession` nullability and wrap with timeout or exception handlers. |

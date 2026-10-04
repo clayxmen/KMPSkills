@@ -31,6 +31,30 @@ Whether building for **Android (API 24–36)**, **iOS (SwiftUI/UIKit)**, **Deskt
 
 ---
 
+## ⚡ Instant Setup in ANY Project (`npx kmp-skills`)
+
+You can endow **ANY** Android Native or Kotlin Multiplatform project with full KMPSkills AI intelligence in under 10 seconds:
+
+```bash
+# In your project root:
+npx kmp-skills init
+```
+
+The CLI automatically detects your project configuration and configures:
+- **Cursor IDE**: Generates `.cursor/rules/*.mdc` with semantic file globs (`**/*ViewModel.kt`, `**/*Dao.kt`, etc.).
+- **Android Studio & VS Code**: Generates `.github/copilot-instructions.md` for Copilot and Gemini Code Assist.
+- **Claude Code CLI & Windsurf**: Generates `CLAUDE.md` and `.windsurfrules`.
+- **Google Antigravity**: Syncs all 27 skills directly into `~/.gemini/config/skills/kmp-*`.
+
+To audit your current project's architecture health, run:
+```bash
+npx kmp-skills doctor
+```
+
+For detailed CLI options, visit [`packages/cli`](packages/cli).
+
+---
+
 ## 🏛️ Architecture at a Glance
 
 The project strictly adheres to **Clean Architecture** blended with **Feature-First Domain-Driven Design (DDD)** and **Unidirectional Data Flow (MVI)**:

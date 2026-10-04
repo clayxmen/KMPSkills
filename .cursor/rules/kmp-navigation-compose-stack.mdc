@@ -1,0 +1,262 @@
+---
+description: "Master-tier guide for implementing type-safe navigation in Kotlin Multiplatform and Compose Multiplatform using official Jetpack Navigation Compose KMP (androidx.navigation.compose 2.8+). Covers Kotlinx Serialization (@Serializable) destinations, nested subgraphs, bottom-bar backstack preservation, animated transitions, and cross-platform deep-link handling across Android, iOS, Desktop, and Web. Use this skill whenever: 1. Setting up declarative, type-safe navigation in Compose Multiplatform. 2. Passing strongly typed arguments between screens without string parsing or bundle keys. 3. Building multi-stack bottom tab navigation with preserved scroll and form states. 4. Structuring nested subgraphs (Auth Flow, Onboarding Flow, Checkout Flow). 5. Wiring ViewModel single-shot UiEffects to NavController navigation commands. Do NOT use when: 1. Using component-based retained navigation frameworks like Decompose (use `kmp-decompose-retained-lifecycle`). 2. Building simple single-screen overlays or tab-only layouts without a backstack."
+globs: ["**/*Nav*.kt","**/*Route*.kt","**/*Destination*.kt"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: 🧭 KMP Type-Safe Navigation Compose Stack
+> **Domain**: 4. Navigation & Layouts | **Target Files**: `**/*Nav*.kt, **/*Route*.kt, **/*Destination*.kt`
+
+# 🧭 KMP Type-Safe Navigation Compose Stack
+
+This skill provides an enterprise architectural blueprint for building scalable, type-safe screen navigation in **Compose Multiplatform (CMP)** using official **Jetpack Navigation Compose KMP** and **Kotlinx Serialization**.
+
+---
+
+## 🗺️ 1. Type-Safe Navigation Architecture & Graph Topology
+
+```mermaid
+graph TD
+    AppNavHost["AppNavHost(navController)"]
+    
+    AppNavHost --> AuthGraph["AuthGraph (@Serializable)"]
+    AuthGraph --> LoginDest["LoginRoute"]
+    AuthGraph --> RegisterDest["RegisterRoute"]
+    
+    AppNavHost --> MainGraph["MainGraph (@Serializable)"]
+    MainGraph --> CatalogDest["ProductCatalogRoute"]
+    MainGraph --> DetailDest["ProductDetailRoute(id, title)"]
+    MainGraph --> CartDest["CartRoute"]
+```
+
+---
+
+## 📦 2. Defining Strongly Typed Destinations (`@Serializable`)
+
+Declare all navigation targets using `@Serializable` data objects and data classes. Never rely on fragile URL path strings:
+
+```kotlin
+package com.example.app.navigation
+
+import kotlinx.serialization.Serializable
+
+// Top-Level Subgraphs
+@Serializable
+data object AuthGraph
+
+@Serializable
+data object MainGraph
+
+// Auth Subgraph Destinations
+@Serializable
+data object LoginRoute
+
+@Serializable
+data object RegisterRoute
+
+// Main Subgraph Destinations
+@Serializable
+data object ProductCatalogRoute
+
+@Serializable
+data class ProductDetailRoute(
+    val productId: String,
+    val initialTitle: String = ""
+)
+
+@Serializable
+data object CartRoute
+
+@Serializable
+data object ProfileRoute
+```
+
+---
+
+## 🎬 3. Multiplatform `AppNavHost` with Animated Transitions
+
+Assemble the global navigation graph with smooth multiplatform transitions:
+
+```kotlin
+package com.example.app.navigation
+
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.navigation
+import androidx.navigation.toRoute
+import com.example.app.features.auth.presentation.LoginScreen
+import com.example.app.features.product.presentation.ProductCatalogScreen
+import com.example.app.features.product.presentation.ProductDetailScreen
+
+@Composable
+fun AppNavHost(
+    navController: NavHostController,
+    snackbarHostState: SnackbarHostState,
+    modifier: Modifier = Modifier
+) {
+    NavHost(
+        navController = navController,
+        startDestination = MainGraph,
+        modifier = modifier.fillMaxSize(),
+        enterTransition = {
+            slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300)) + fadeIn(tween(300))
+        },
+        exitTransition = {
+            slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(300)) + fadeOut(tween(300))
+        },
+        popEnterTransition = {
+            slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(300)) + fadeIn(tween(300))
+        },
+        popExitTransition = {
+            slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300)) + fadeOut(tween(300))
+        }
+    ) {
+        authGraph(navController, snackbarHostState)
+        mainGraph(navController, snackbarHostState)
+    }
+}
+
+fun NavGraphBuilder.authGraph(
+    navController: NavHostController,
+    snackbarHostState: SnackbarHostState
+) {
+    navigation<AuthGraph>(startDestination = LoginRoute) {
+        composable<LoginRoute> {
+            LoginScreen(
+                onLoginSuccess = {
+                    navController.navigate(MainGraph) {
+                        popUpTo(AuthGraph) { inclusive = true }
+                    }
+                }
+            )
+        }
+    }
+}
+
+fun NavGraphBuilder.mainGraph(
+    navController: NavHostController,
+    snackbarHostState: SnackbarHostState
+) {
+    navigation<MainGraph>(startDestination = ProductCatalogRoute) {
+        composable<ProductCatalogRoute> {
+            ProductCatalogScreen(
+                onNavigateToDetail = { productId ->
+                    navController.navigate(ProductDetailRoute(productId = productId))
+                },
+                snackbarHostState = snackbarHostState
+            )
+        }
+
+        composable<ProductDetailRoute> { backStackEntry ->
+            // Extract strongly typed arguments with zero bundle casting
+            val route: ProductDetailRoute = backStackEntry.toRoute()
+
+            ProductDetailScreen(
+                productId = route.productId,
+                initialTitle = route.initialTitle,
+                onNavigateBack = { navController.popBackStack() },
+                snackbarHostState = snackbarHostState
+            )
+        }
+    }
+}
+```
+
+---
+
+## 📱 4. Multi-Stack Bottom Navigation with State Preservation
+
+Retain scroll positions and text form states across tab switches using `saveState` and `restoreState`:
+
+```kotlin
+package com.example.app.navigation
+
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
+
+sealed class BottomTabItem(val route: Any, val label: String, val icon: ImageVector) {
+    data object Products : BottomTabItem(ProductCatalogRoute, "Catalog", Icons.Default.Home)
+    data object Cart : BottomTabItem(CartRoute, "Cart", Icons.Default.ShoppingCart)
+    data object Profile : BottomTabItem(ProfileRoute, "Profile", Icons.Default.Person)
+}
+
+@Composable
+fun AppBottomBar(
+    navController: NavHostController,
+    tabs: List<BottomTabItem> = listOf(BottomTabItem.Products, BottomTabItem.Cart, BottomTabItem.Profile)
+) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentDestination = navBackStackEntry?.destination
+
+    NavigationBar {
+        tabs.forEach { tab ->
+            val isSelected = currentDestination?.hierarchy?.any { it.hasRoute(tab.route::class) } == true
+
+            NavigationBarItem(
+                selected = isSelected,
+                onClick = {
+                    navController.navigate(tab.route) {
+                        // Pop up to root to avoid large stack build-up
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        // Avoid multiple copies of the same destination when re-selecting the same tab
+                        launchSingleTop = true
+                        // Restore state when re-selecting a previously selected item
+                        restoreState = true
+                    }
+                },
+                icon = { Icon(tab.icon, contentDescription = tab.label) },
+                label = { Text(tab.label) }
+            )
+        }
+    }
+}
+```
+
+---
+
+## 🔗 5. Cross-Platform Deep Linking
+
+Define deep links declaratively using `navDeepLink`:
+
+```kotlin
+composable<ProductDetailRoute>(
+    deepLinks = listOf(
+        navDeepLink<ProductDetailRoute>(basePath = "https://myapp.com/products")
+    )
+) { backStackEntry ->
+    val route: ProductDetailRoute = backStackEntry.toRoute()
+    ProductDetailScreen(productId = route.productId)
+}
+```
+
+On Android, register standard intent-filters in `AndroidManifest.xml`. On iOS, pass incoming `NSUserActivity` or `URL` to `navController.handleDeepLink(intent)`.
+
+---
+
+## 🚫 6. Navigation Anti-Patterns & Best Practices
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Passing Large Domain Objects** | Passing `Product(id, name, ...)` inside route serializable args bloats the backstack and causes serialization overhead. | Pass only identity keys (`productId: String`) and allow the destination ViewModel to load data from the shared repository cache. |
+| **Injecting `NavController` into ViewModels** | Coupling ViewModels to UI NavController breaks unit testing and destroys platform independence. | Dispatch single-shot `UiEffect.Navigate(...)` from ViewModel and let the Screen Composable invoke `navController.navigate()`. |
+| **String URL Matching** | Writing `"product_detail/{id}"` creates silent runtime crashes when parameter names mismatch. | Use `@Serializable` data classes with `backStackEntry.toRoute<T>()`. |
+| **Forgetting `launchSingleTop` in Tabs** | Users tapping the same bottom tab multiple times create duplicate instances of the same screen. | Always configure `launchSingleTop = true` and `restoreState = true` on tab switches. |

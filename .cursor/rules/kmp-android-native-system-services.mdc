@@ -1,0 +1,311 @@
+---
+description: "Master-tier guide for deep Android native OS integration in Kotlin Multiplatform and Compose projects. Covers Foreground Services (Android 14+ types), WorkManager background tasks, Runtime Permissions (Android 13+ granular media & notifications), and Android 15 Edge-to-Edge system insets. Use this skill whenever: 1. Implementing Android background processing with WorkManager or Foreground Services. 2. Requesting runtime permissions in Compose Multiplatform on Android. 3. Configuring Android 14/15 mandatory Foreground Service types (dataSync, mediaPlayback, location). 4. Enabling edge-to-edge system bars (status bar & navigation bar transparency) on modern Android. 5. Handling Android Activity lifecycles, configuration changes, and system callbacks. Do NOT use when: 1. Writing cross-platform domain business logic (use `kmp-architecture-foundation`). 2. Building iOS-specific SwiftUI or UIKit bridges (use `kmp-ios-swiftui-interop`)."
+globs: ["**/androidMain/**/*.kt","**/*Worker.kt","**/*Service.kt"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: 🤖 Android Native System Services & Modern OS Capabilities
+> **Domain**: 7. Native Bridges | **Target Files**: `**/androidMain/**/*.kt, **/*Worker.kt, **/*Service.kt`
+
+# 🤖 Android Native System Services & Modern OS Capabilities
+
+This skill provides an enterprise architectural blueprint for mastering deep Android native capabilities within **Kotlin Multiplatform (KMP)** projects. It covers **Foreground Services (Android 14+)**, **WorkManager background tasks**, **Runtime Permissions**, and **Android 15 Edge-to-Edge** insets.
+
+---
+
+## 🏗️ 1. Modern Android OS Architecture (API 34 - 36)
+
+```mermaid
+graph TD
+    App["KMP Android Application"]
+    
+    App --> E2E["Android 15 Edge-to-Edge<br/>(enableEdgeToEdge() + WindowInsets.safeDrawing)"]
+    App --> Perms["Granular Permissions Engine<br/>(POST_NOTIFICATIONS, READ_MEDIA_*)"]
+    App --> Background["Background Execution Layer"]
+    
+    Background --> Work["WorkManager (Deferred / Periodic Sync)<br/>Battery & Unmetered Network Constraints"]
+    Background --> FG["Foreground Service (Immediate Long-Running)<br/>Mandatory Type: dataSync / media / location"]
+```
+
+---
+
+## ⚡ 2. Android 14+ Foreground Service Implementation
+
+Starting in Android 14 (API 34), every Foreground Service **must declare an explicit `foregroundServiceType`** in the manifest and call `startForeground()` within **5 seconds** to prevent `ForegroundServiceDidNotStartInTimeException`.
+
+### A. Manifest Declaration (`androidApp/src/main/AndroidManifest.xml`)
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <service
+            android:name=".services.AppSyncForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+    </application>
+</manifest>
+```
+
+### B. Production Foreground Service
+```kotlin
+package com.example.app.services
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+class AppSyncForegroundService : Service() {
+
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    companion object {
+        const val CHANNEL_ID = "sync_channel"
+        const val NOTIFICATION_ID = 1001
+
+        fun start(context: Context) {
+            val intent = Intent(context, AppSyncForegroundService::class.java)
+            context.startForegroundService(intent)
+        }
+
+        fun stop(context: Context) {
+            val intent = Intent(context, AppSyncForegroundService::class.java)
+            context.stopService(intent)
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+        val notification = buildNotification("Syncing data in background...")
+
+        // Android 14+ requires explicit foregroundServiceType constant
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        serviceScope.launch {
+            // Perform background network sync
+            delay(5000)
+            stopSelf()
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Data Sync Service",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Maintains persistent connection during background synchronization"
+        }
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun buildNotification(contentText: String): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Cloud Synchronization")
+            .setContentText(contentText)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setOngoing(true)
+            .build()
+    }
+}
+```
+
+---
+
+## 🛠️ 3. Jetpack WorkManager for Periodic & Deferred Tasks
+
+WorkManager is the standard for battery-conscious background execution:
+
+### A. CoroutineWorker Implementation
+```kotlin
+package com.example.app.workers
+
+import android.content.Context
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+class PeriodicDataSyncWorker(
+    context: Context,
+    params: WorkerParameters
+) : CoroutineWorker(context, params) {
+
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        try {
+            // Execute domain sync use case
+            Result.success()
+        } catch (e: Exception) {
+            if (runAttemptCount < 3) Result.retry() else Result.failure()
+        }
+    }
+}
+```
+
+### B. Scheduling Periodic Work with Constraints
+```kotlin
+package com.example.app.workers
+
+import android.content.Context
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
+
+object WorkScheduler {
+    fun schedulePeriodicSync(context: Context) {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.UNMETERED) // Only on Wi-Fi
+            .setRequiresBatteryNotLow(true)
+            .build()
+
+        val syncWorkRequest = PeriodicWorkRequestBuilder<PeriodicDataSyncWorker>(
+            repeatInterval = 6,
+            repeatIntervalTimeUnit = TimeUnit.HOURS
+        )
+            .setConstraints(constraints)
+            .build()
+
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "PeriodicSyncWork",
+            ExistingPeriodicWorkPolicy.KEEP,
+            syncWorkRequest
+        )
+    }
+}
+```
+
+---
+
+## 📱 4. Compose Multiplatform Runtime Permissions Launcher
+
+Manage Android 13+ runtime permissions cleanly inside Composable trees:
+
+```kotlin
+package com.example.app.core.permissions
+
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+
+@Composable
+fun RequestNotificationPermission(
+    onPermissionResult: (Boolean) -> Unit
+) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val launcher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            onPermissionResult(isGranted)
+        }
+
+        SideEffect {
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    } else {
+        onPermissionResult(true)
+    }
+}
+```
+
+---
+
+## 🎨 5. Android 15 Edge-to-Edge System Insets
+
+Ensure seamless status bar and navigation bar drawing without content clipping:
+
+### `androidApp/src/main/kotlin/.../MainActivity.kt`
+```kotlin
+package com.example.app
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Enforces full transparency and edge-to-edge layout on Android 15+
+        enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
+
+        setContent {
+            App()
+        }
+    }
+}
+```
+
+### Handling Insets in Compose:
+```kotlin
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+
+@Composable
+fun AppRootContainer(content: @Composable () -> Unit) {
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+    ) {
+        content()
+    }
+}
+```
+
+---
+
+## 🚫 6. Android Native Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Calling `startForegroundService` without immediate notification** | Android kills the app after 5 seconds if `startForeground()` is not posted. | Call `startForeground(id, notification)` immediately inside `Service.onCreate()`. |
+| **Using `GlobalScope` inside Services** | Coroutines continue running even after the service is stopped by the OS, causing memory leaks. | Create a scoped `SupervisorJob() + Dispatchers.IO` and cancel it in `onDestroy()`. |
+| **Requesting Legacy Storage Permissions on Android 13+** | Requesting `READ_EXTERNAL_STORAGE` on API 33+ is ignored by the OS. | Use `READ_MEDIA_IMAGES` and `READ_MEDIA_VIDEO` on API 33+. |
+| **Ignoring Android 15 Edge-to-Edge** | Hardcoding status bar heights causes content overlap on modern predictive-back gesture bars. | Use `enableEdgeToEdge()` and apply `WindowInsets.safeDrawing`. |

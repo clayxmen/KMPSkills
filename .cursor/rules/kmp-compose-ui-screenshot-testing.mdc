@@ -1,0 +1,166 @@
+---
+description: "Master-tier guide for implementing automated Visual Regression and Screenshot Testing in Compose Multiplatform. Covers Roborazzi headless JVM image capture, golden screenshot versioning, Light/Dark theme matrix tests, and CI/CD pixel-difference gate checks. Use this skill whenever: 1. Preventing UI visual regressions and accidental layout breakages in CMP. 2. Generating automated golden screenshot baselines without physical emulators. 3. Testing font scaling, text truncation, and RTL layouts visually. 4. Comparing Light and Dark theme renderings automatically. 5. Integrating verifyRoborazzi into GitHub Actions pull request checks. Do NOT use when: 1. Testing non-visual business logic or UseCases (use `kmp-testing-mocking-turbines`). 2. Measuring app launch performance (use `kmp-baseline-profiles-r8-shrinking`)."
+globs: ["**/*ScreenshotTest*.kt","**/*Preview*.kt"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: 📸 Compose UI Visual Regression & Screenshot Testing
+> **Domain**: 9. Testing & Quality | **Target Files**: `**/*ScreenshotTest*.kt, **/*Preview*.kt`
+
+# 📸 Compose UI Visual Regression & Screenshot Testing
+
+This skill provides an enterprise architectural blueprint for automated **Visual Regression Testing** in **Compose Multiplatform (CMP)** using **Roborazzi**. It enables 100% headless, fast pixel-by-pixel verification on the JVM without launching physical devices or emulators.
+
+---
+
+## 🖼️ 1. Visual Verification Pipeline
+
+```mermaid
+graph LR
+    Dev["Developer Code / PR"] --> RecordTask["./gradlew recordRoborazziDebug (Generate Golden PNGs)"]
+    RecordTask --> GitTrack["Commit golden baselines to repository (screenshots/)"]
+    
+    CI["GitHub Actions CI"] --> VerifyTask["./gradlew verifyRoborazziDebug (Compare Pixel Matrix)"]
+    VerifyTask --> Check{"Pixel Diff > 0.1%?"}
+    Check -- Yes --> FailPR["❌ FAIL BUILD<br/>Generate visual diff artifact showing highlight overlay"]
+    Check -- No --> PassPR["✅ PASS BUILD<br/>Zero visual regression detected"]
+```
+
+---
+
+## 📦 2. Dependencies & Gradle Plugin Setup
+
+In `gradle/libs.versions.toml`:
+```toml
+[versions]
+roborazzi = "1.34.0"
+robolectric = "4.14"
+
+[libraries]
+roborazzi-core = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+
+[plugins]
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
+```
+
+In `app/androidApp/build.gradle.kts`:
+```kotlin
+plugins {
+    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.roborazzi)
+}
+
+android {
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+}
+
+dependencies {
+    testImplementation(libs.roborazzi.core)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.robolectric)
+}
+```
+
+---
+
+## 🧪 3. Screenshot Test Suite Implementation
+
+Write deterministic tests covering Light Mode, Dark Mode, and Dynamic Text Scaling:
+
+```kotlin
+package com.example.app.ui.screenshot
+
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.example.app.core.theme.AppTheme
+import com.example.app.core.ui.atoms.AppButton
+import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class ButtonScreenshotTest {
+
+    @Test
+    fun captureAppButton_lightTheme() {
+        captureRoboImage("build/outputs/roborazzi/app_button_light.png") {
+            AppTheme(darkTheme = false) {
+                AppButton(
+                    text = "Checkout Order",
+                    onClick = {},
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+    }
+
+    @Test
+    fun captureAppButton_darkTheme() {
+        captureRoboImage("build/outputs/roborazzi/app_button_dark.png") {
+            AppTheme(darkTheme = true) {
+                AppButton(
+                    text = "Checkout Order",
+                    onClick = {},
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+    }
+
+    @Test
+    fun captureAppButton_loadingState() {
+        captureRoboImage("build/outputs/roborazzi/app_button_loading.png") {
+            AppTheme(darkTheme = false) {
+                AppButton(
+                    text = "Checkout Order",
+                    isLoading = true,
+                    onClick = {},
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+    }
+}
+```
+
+---
+
+## 💻 4. CLI Execution & CI Gate Workflows
+
+### Generating / Updating Golden Baselines
+```bash
+# Records new reference images into screenshots/
+./gradlew recordRoborazziDebug
+```
+
+### Verifying Pull Requests in CI
+```bash
+# Compares current output against stored golden reference images
+./gradlew verifyRoborazziDebug
+```
+
+If a visual change is detected, Roborazzi generates a side-by-side diff image:
+```text
+[Reference Golden]  vs  [Current PR Render]  ➔  [Red Pixel Diff Mask]
+```
+
+---
+
+## 🚫 5. Screenshot Testing Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Dynamic Timestamps in UI** | Rendering `DateTime.now()` produces a different image every run, causing false CI failures. | Pass static fake timestamps (e.g. `"2026-10-04 12:00"`) in test previews. |
+| **Running on Live Network Images** | Async image downloads from remote URLs fail or delay in headless test runs, resulting in blank placeholders. | Supply local vector drawables or fake in-memory image decoders in tests. |
+| **Testing with Active Animations** | Infinite pulse/shimmer animations capture a different animation frame on every run. | Disable animations or test static states (e.g., pass `isLoading = false` or freeze clock). |
+| **Ignoring Dark Mode Variants** | Only testing Light Theme misses black-on-black invisible text bugs in Dark Theme. | Always write paired test cases: `capture_light` and `capture_dark`. |

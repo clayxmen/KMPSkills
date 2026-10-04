@@ -33,6 +33,30 @@ Kho lưu trữ này cung cấp **27 Siêu Skills thực chiến** bao phủ từ
 
 ---
 
+## ⚡ Cài Đặt Tức Thì Vào MỌI Dự Án (`npx kmp-skills`)
+
+Bạn có thể trang bị toàn bộ 27 Siêu Kỹ Năng và quy tắc kiến trúc KMPSkills vào **BẤT KỲ** dự án Android Native hoặc Kotlin Multiplatform nào chỉ trong chưa đầy 10 giây:
+
+```bash
+# Chạy trực tiếp tại thư mục gốc của dự án:
+npx kmp-skills init
+```
+
+Công cụ CLI sẽ tự động quét cấu hình dự án và thiết lập tương thích:
+- **Cursor IDE**: Tự động sinh `.cursor/rules/*.mdc` với cơ chế kích hoạt thông minh theo file (`**/*ViewModel.kt`, `**/*Dao.kt`, v.v.).
+- **Android Studio & VS Code**: Sinh `.github/copilot-instructions.md` phục vụ GitHub Copilot và Google Gemini Code Assist.
+- **Claude Code CLI & Windsurf**: Tự động sinh `CLAUDE.md` và `.windsurfrules`.
+- **Google Antigravity**: Đồng bộ 27 kỹ năng vào thư mục toàn cục `~/.gemini/config/skills/kmp-*`.
+
+Để chẩn đoán sức khỏe kiến trúc dự án hiện tại, hãy chạy:
+```bash
+npx kmp-skills doctor
+```
+
+Xem hướng dẫn chi tiết các tùy chọn CLI tại [`packages/cli`](packages/cli).
+
+---
+
 ## 🏛️ Sơ Đồ Kiến Trúc Tổng Thể
 
 Dự án tuân thủ nghiêm ngặt **Kiến trúc Clean Architecture** phối hợp cùng **Mô hình Dữ liệu Đơn Luồng (Unidirectional Data Flow - MVI)**:

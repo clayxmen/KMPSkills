@@ -1,0 +1,156 @@
+---
+description: "Master-tier guide for store release packaging, automated code signing, and distribution across Google Play Store (AAB), Apple App Store / TestFlight (IPA), and Desktop (Windows MSI, macOS DMG, Linux Deb). Covers Fastlane automation, Apple Notarization (notarytool), Play App Signing, and Conveyor packaging. Use this skill whenever: 1. Packaging and signing Android App Bundles (AAB) with release keystores. 2. Setting up Fastlane for automated iOS TestFlight and App Store deployments. 3. Notarizing macOS desktop binaries to pass Apple Gatekeeper checks. 4. Building native installers for Desktop (MSI on Windows, DMG on macOS, Deb on Linux). 5. Automating store metadata and screenshot uploads. Do NOT use when: 1. Setting up GitHub Actions workflow runners (use `kmp-ci-cd-matrix-automation`). 2. Optimizing ProGuard/R8 rules (use `kmp-baseline-profiles-r8-shrinking`)."
+globs: ["**/build.gradle.kts","Fastfile"]
+alwaysApply: false
+---
+
+### 💎 KMPSkills: 📦 KMP Multi-Target Distribution & Code Signing
+> **Domain**: 10. DevOps & Fullstack | **Target Files**: `**/build.gradle.kts, Fastfile`
+
+# 📦 KMP Multi-Target Distribution & Code Signing
+
+This skill provides an enterprise architectural blueprint for **code signing**, **binary packaging**, and **automated store distribution** across **Google Play**, **Apple App Store**, and **Desktop Operating Systems**.
+
+---
+
+## 🏗️ 1. Multiplatform Distribution Architecture
+
+```mermaid
+graph TD
+    Source["Shared KMP Codebase"]
+    
+    Source --> AndroidTarget["Android App Bundle (AAB)<br/>➔ Google Play Store / Internal Track"]
+    Source --> IOSTarget["Apple IPA / TestFlight<br/>➔ Fastlane match + App Store Connect"]
+    Source --> MacOSTarget["macOS DMG Package<br/>➔ Apple Notarization (notarytool)"]
+    Source --> WindowsTarget["Windows MSI / EXE<br/>➔ Conveyor / InnoSetup Code-Signed"]
+```
+
+---
+
+## 🤖 2. Android Release Signing & AAB Packaging
+
+Configure release signing safely via environment variables in `app/androidApp/build.gradle.kts`:
+
+```kotlin
+android {
+    signingConfigs {
+        create("release") {
+            storeFile = file(System.getenv("KEYSTORE_PATH") ?: "release.jks")
+            storePassword = System.getenv("KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("KEY_ALIAS")
+            keyPassword = System.getenv("KEY_PASSWORD")
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = true
+            isShrinkResources = true
+        }
+    }
+}
+```
+
+Generate the signed store bundle:
+```bash
+./gradlew :app:androidApp:bundleRelease
+```
+
+---
+
+## 🍏 3. iOS Fastlane & TestFlight Automation
+
+Automate certificates, provisioning profiles, and TestFlight uploads using Fastlane.
+
+### `iosApp/Fastfile`
+```ruby
+default_platform(:ios)
+
+platform :ios do
+  desc "Push a new build to TestFlight"
+  lane :beta do
+    # 1. Sync certificates using Git-backed match
+    match(type: "appstore", readonly: is_ci)
+
+    # 2. Increment build number
+    increment_build_number(xcodeproj: "iosApp.xcodeproj")
+
+    # 3. Build signed IPA archive
+    build_app(
+      project: "iosApp.xcodeproj",
+      scheme: "iosApp",
+      export_method: "app-store",
+      output_directory: "./build/artifacts"
+    )
+
+    # 4. Upload directly to TestFlight
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
+```
+
+---
+
+## 💻 4. Desktop Packaging & Apple Gatekeeper Notarization
+
+### A. Compose Desktop Packaging (`app/desktopApp/build.gradle.kts`)
+```kotlin
+compose.desktop {
+    application {
+        mainClass = "com.example.app.MainKt"
+
+        nativeDistributions {
+            targetFormats(
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi,
+                org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb
+            )
+            packageName = "MyKmpApp"
+            packageVersion = "1.0.0"
+
+            macOS {
+                bundleID = "com.example.app.desktop"
+                iconFile.set(project.file("src/jvmMain/resources/icon.icns"))
+            }
+
+            windows {
+                iconFile.set(project.file("src/jvmMain/resources/icon.ico"))
+                menuGroup = "MyKmpApp"
+            }
+        }
+    }
+}
+```
+
+### B. macOS Notarization via CLI
+Unnotarized macOS apps are blocked by Gatekeeper with *"App is damaged and cannot be opened"*:
+
+```bash
+# 1. Package DMG
+./gradlew :app:desktopApp:packageDmg
+
+# 2. Submit for Apple Notarization
+xcrun notarytool submit \
+  "app/desktopApp/build/compose/binaries/main/dmg/MyKmpApp-1.0.0.dmg" \
+  --apple-id "$APPLE_ID" \
+  --password "$APP_SPECIFIC_PASSWORD" \
+  --team-id "$TEAM_ID" \
+  --wait
+
+# 3. Staple the notarization ticket to the DMG
+xcrun stapler staple "app/desktopApp/build/compose/binaries/main/dmg/MyKmpApp-1.0.0.dmg"
+```
+
+---
+
+## 🚫 5. Distribution Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Distributing Unnotarized macOS DMGs** | Apple Gatekeeper warns users that the app is malicious or prevents opening entirely. | Submit binary to Apple Notarization via `notarytool` and attach ticket with `stapler`. |
+| **Storing Keystore Passwords in Code** | Committing passwords in `build.gradle.kts` leaks private signing keys in version control. | Inject credentials through environment variables or GitHub Secrets. |
+| **Manual TestFlight Uploads via Xcode** | Slow, error-prone manual archiving that wastes developer hours on every release. | Automate with Fastlane (`fastlane beta`) in CI/CD. |
+| **Shipping Uncompressed Desktop Binaries** | Distributing bare jar files requires users to manually install Java runtime. | Use Compose Native Distributions to package bundled self-contained JRE runtimes. |
