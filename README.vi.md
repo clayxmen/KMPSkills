@@ -59,6 +59,26 @@ Xem hướng dẫn chi tiết các tùy chọn CLI tại [`packages/cli`](packag
 
 ---
 
+## 🧩 Plugin Cài Đặt Trực Tiếp Cho Android Studio (`KMPSkills Assistant`)
+
+Nếu bạn muốn có giao diện đồ họa GUI trực quan ngay bên trong Android Studio, hãy cài đặt plugin **KMPSkills Assistant**:
+
+1. Trong Android Studio, vào **Settings > Plugins > ⚙️ > Install Plugin from Disk...**
+2. Chọn file zip đã được biên dịch sẵn:
+   ```text
+   plugins/android-studio/build/distributions/kmpskills-android-studio-plugin-1.0.0.zip
+   ```
+3. Bấm **Apply** và **Restart IDE**.
+
+**Các Tính Năng Tích Hợp Sẵn**:
+- **Cửa Sổ Sidebar Tool Window**: Tra cứu nhanh 27 Skills, đọc giáo trình 10 cấp độ, và nút bấm 1-click nạp AI context vào project.
+- **Menu Chuột Phải Sinh Mã Tự Động**: `KMPSkills > New MVI Feature Screen...` (State, Intent, Effect, ViewModel, Screen) và `New Room KMP Entity & DAO...`.
+- **Bộ Kiểm Toán Kiến Trúc**: `Tools > KMPSkills > Run Architecture Doctor` kiểm tra tự động `libs.versions.toml`.
+
+Xem hướng dẫn chi tiết và cách tùy biến tại [`plugins/android-studio`](plugins/android-studio).
+
+---
+
 ## 🏛️ Sơ Đồ Kiến Trúc Tổng Thể
 
 Dự án tuân thủ nghiêm ngặt **Kiến trúc Clean Architecture** phối hợp cùng **Mô hình Dữ liệu Đơn Luồng (Unidirectional Data Flow - MVI)**:

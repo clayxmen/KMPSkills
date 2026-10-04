@@ -57,6 +57,26 @@ For detailed CLI options, visit [`packages/cli`](packages/cli).
 
 ---
 
+## 🧩 Android Studio Native Plugin (`KMPSkills Assistant`)
+
+Prefer a native GUI inside Android Studio? Install the pre-compiled **KMPSkills Assistant Plugin**:
+
+1. In Android Studio, go to **Settings > Plugins > ⚙️ > Install Plugin from Disk...**
+2. Select the ready-to-use zip file:
+   ```text
+   plugins/android-studio/build/distributions/kmpskills-android-studio-plugin-1.0.0.zip
+   ```
+3. Restart Android Studio.
+
+**Included Features**:
+- **Sidebar Tool Window**: Interactive browser for 27 skills, 10-level curriculum, and 1-click AI rule injection.
+- **Right-Click Code Scaffolder**: `KMPSkills > New MVI Feature Screen...` (State, Intent, Effect, ViewModel, Screen) and `New Room KMP Entity & DAO...`.
+- **Architecture Doctor**: `Tools > KMPSkills > Run Architecture Doctor` audits your `libs.versions.toml`.
+
+For full documentation and screenshots, visit [`plugins/android-studio`](plugins/android-studio).
+
+---
+
 ## 🏛️ Architecture at a Glance
 
 The project strictly adheres to **Clean Architecture** blended with **Feature-First Domain-Driven Design (DDD)** and **Unidirectional Data Flow (MVI)**:

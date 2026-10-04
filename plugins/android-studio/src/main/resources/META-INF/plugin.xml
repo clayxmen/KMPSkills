@@ -1,0 +1,64 @@
+<idea-plugin>
+    <id>io.github.kmpskills.plugin</id>
+    <name>KMPSkills Assistant</name>
+    <version>1.0.0</version>
+    <vendor email="support@kmpskills.io" url="https://github.com/clayxmen/KMPSkills">clayxmen</vendor>
+
+    <description><![CDATA[
+    <h3>💎 KMPSkills Assistant for Android Studio & IntelliJ IDEA</h3>
+    <p>Enterprise AI Skills, MVI Feature Scaffolder, Room KMP Generator, and Architectural Diagnostics for Android Native & Kotlin Multiplatform.</p>
+
+    <h4>Key Capabilities:</h4>
+    <ul>
+        <li><b>Sidebar Tool Window</b>: Interactive browser for all 27 architectural skills and 10-level masterclass curriculum.</li>
+        <li><b>1-Click AI Rule Injection</b>: Automatically configures <code>.github/copilot-instructions.md</code> for GitHub Copilot & Gemini Code Assist.</li>
+        <li><b>MVI Feature Generator</b>: Right-click any folder to scaffold complete, warning-free MVI <code>UiState</code>, <code>UiIntent</code>, <code>UiEffect</code>, <code>ViewModel</code>, and Compose <code>Screen</code>.</li>
+        <li><b>Room KMP Scaffolder</b>: Generates type-safe Room Entity and reactive DAO with <code>BundledSQLiteDriver</code>.</li>
+        <li><b>Architecture Doctor</b>: Audits your project's <code>libs.versions.toml</code> and Kotlin/Compose compatibility in real-time.</li>
+    </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="KMPSkills"
+                    secondary="false"
+                    anchor="right"
+                    factoryClass="io.github.kmpskills.plugin.toolwindow.KMPSkillsToolWindowFactory"
+                    icon="AllIcons.Toolwindows.ToolWindowPalette"/>
+    </extensions>
+
+    <actions>
+        <group id="KMPSkillsActionGroup" text="KMPSkills" description="KMPSkills Architecture &amp; AI Tools" popup="true">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="after" relative-to-action="WeighingNewGroup"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+
+            <action id="io.github.kmpskills.plugin.actions.InjectAiRulesAction"
+                    class="io.github.kmpskills.plugin.actions.InjectAiRulesAction"
+                    text="KMPSkills: Inject AI Context (Copilot &amp; Gemini)"
+                    description="Generates .github/copilot-instructions.md and AI rules in this project">
+            </action>
+
+            <action id="io.github.kmpskills.plugin.actions.CreateMviFeatureAction"
+                    class="io.github.kmpskills.plugin.actions.CreateMviFeatureAction"
+                    text="KMPSkills: New MVI Feature Screen..."
+                    description="Scaffolds a complete MVI feature (State, Intent, Effect, ViewModel, Screen)">
+            </action>
+
+            <action id="io.github.kmpskills.plugin.actions.CreateRoomKmpAction"
+                    class="io.github.kmpskills.plugin.actions.CreateRoomKmpAction"
+                    text="KMPSkills: New Room KMP Entity &amp; DAO..."
+                    description="Scaffolds a Room Multiplatform 2.7+ Entity and Reactive DAO">
+            </action>
+
+            <separator/>
+
+            <action id="io.github.kmpskills.plugin.actions.RunDoctorAction"
+                    class="io.github.kmpskills.plugin.actions.RunDoctorAction"
+                    text="KMPSkills: Run Architecture Doctor"
+                    description="Audits libs.versions.toml and checks project architecture health">
+            </action>
+        </group>
+    </actions>
+</idea-plugin>
