@@ -5,32 +5,41 @@
 [![Node Version](https://img.shields.io/badge/Node-%3E%3D18.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org)
 [![Platform Support](https://img.shields.io/badge/Targets-Android_%7C_iOS_%7C_Desktop_%7C_Web_%7C_Server-blueviolet.svg?style=flat-square)](#supported-targets)
 
-`kmp-skills` is a zero-dependency, universal developer CLI that installs **27 enterprise-grade architectural skills and prompt matrices** into **ANY** Android Native or Kotlin Multiplatform (KMP/CMP) project in seconds.
+`kmp-skills` is a masterclass developer CLI and TUI wizard that equips **ANY** Android Native or Kotlin Multiplatform (KMP/CMP) project with **27 enterprise-grade architectural skills, code scaffolders, interactive doctor diagnostics, and a 10-level curriculum reader**.
 
-Once installed, your AI coding assistants (**Cursor, Android Studio, VS Code, Google Antigravity, or Claude Code**) will automatically understand your project conventions, architectural boundaries, Room database migrations, Ktor networking, MVI state machines, and Compose compiler stability rules out-of-the-box.
+Once installed, your AI coding assistants (**Cursor, Android Studio, VS Code, Google Antigravity, or Claude Code**) will automatically obey your project conventions, architectural boundaries, Room database migrations, Ktor networking, MVI state machines, and Compose compiler stability rules out-of-the-box.
 
 ---
 
-## ⚡ Quick Start (Zero-Install via `npx`)
+## ⚡ Quick Start (Interactive Console Experience)
 
-Navigate to your Android or KMP project root and run:
+Run directly with zero installation via `npx`:
 
 ```bash
-npx kmp-skills init
+npx kmp-skills
 ```
 
-That's it! The CLI will inspect your project, detect your IDEs, and generate the appropriate context files.
+Running `kmp-skills` without arguments launches the **Interactive Developer Console Menu**:
+- 🚀 **Initialize AI Context**: Configure Cursor rules, Copilot instructions, Claude Code, and Antigravity.
+- 💎 **Generate Architecture Code**: Scaffold production-grade MVI screens, Room DAOs, Outbox sync, and Themes.
+- 🩺 **Run Architecture Doctor**: Audit Gradle versions, project topology, and one-click auto-fix missing rules.
+- 📚 **Masterclass Curriculum Reader**: Read all 10 levels of KMP engineering directly in the terminal.
+- 🔍 **Search & Inspect Skills**: Fuzzy-search 27 skills with terminal preview and direct export.
+- 📋 **View Catalog**: Browse skills categorized by 10 architectural domains.
 
-### Global Installation (Optional)
+### Global Installation
 
 ```bash
 npm install -g kmp-skills
 
-# Run project health & architecture doctor
-kmp-skills doctor
+# Open interactive menu anytime
+kmp-skills
 
-# Initialize or update AI rules
-kmp-skills init --all
+# Run project health & architecture doctor with auto-fix
+kmp-skills doctor --fix
+
+# Scaffold an MVI feature screen in seconds
+kmp-skills g mvi Cart --package com.example.cart --output src/commonMain/kotlin/com/example/cart
 ```
 
 ---
@@ -38,7 +47,7 @@ kmp-skills init --all
 ## 🛠️ CLI Command Reference
 
 ### 1. `kmp-skills init`
-Initializes or refreshes AI prompt rules in the current project.
+Initializes or refreshes AI prompt rules in the current project with interactive prompts:
 
 ```bash
 # Interactive mode (prompts for IDEs and Models)
@@ -62,11 +71,37 @@ kmp-skills init --all
 
 ---
 
-### 2. `kmp-skills doctor`
-Runs a deep architectural and AI environment diagnostic check:
+### 2. `kmp-skills generate` (alias: `g`, `gen`)
+Scaffolds production-grade, warning-free architecture files:
 
 ```bash
+# Interactive wizard (prompts for scaffold type, name, package, output dir)
+kmp-skills generate
+
+# Generate MVI Feature (UiState, UiIntent, UiEffect, ViewModel, Screen)
+kmp-skills g mvi ProductDetail --package com.example.product
+
+# Generate Room KMP Relational Entity & Reactive Flow DAO
+kmp-skills g room Article --package com.example.database
+
+# Generate Offline-First Mutation Outbox Engine & Dispatcher
+kmp-skills g outbox SyncEngine --package com.example.sync
+
+# Generate Neobrutalism Design Tokens & Material 3 Dynamic Theme
+kmp-skills g theme AppTheme --package com.example.theme
+```
+
+---
+
+### 3. `kmp-skills doctor` (alias: `doc`)
+Runs an architectural and AI environment diagnostic check:
+
+```bash
+# Standard diagnostic check
 kmp-skills doctor
+
+# Audit and automatically fix missing rules
+kmp-skills doctor --fix
 ```
 
 **Checks performed**:
@@ -80,10 +115,43 @@ kmp-skills doctor
   - Koin DI (`>= 4.0.0`)
 - **Testing Infrastructure**: Verifies presence of CashApp Turbine and Mockative.
 - **AI Rule Status**: Checks if Cursor MDC rules, Copilot instructions, Claude rules, and Antigravity skills are active.
+- **Auto-Fix**: Automatically generates missing context files on demand.
 
 ---
 
-### 3. `kmp-skills list`
+### 4. `kmp-skills learn` (alias: `curriculum`, `c`)
+Browse and read the official 10-Level Kotlin Multiplatform Masterclass curriculum directly in the terminal:
+
+```bash
+# Open interactive curriculum reader
+kmp-skills learn
+
+# Jump directly to Level 7 (MVI State Machines)
+kmp-skills learn 7
+
+# Read the full curriculum roadmap & overview
+kmp-skills learn readme
+```
+
+---
+
+### 5. `kmp-skills search` (alias: `find`, `s`)
+Fuzzy search across all 27 skills by technology, domain, or concept:
+
+```bash
+# Interactive search prompt
+kmp-skills search
+
+# Search for Room database skills
+kmp-skills search room
+
+# Search for memory leak and ARC profiling
+kmp-skills search memory
+```
+
+---
+
+### 6. `kmp-skills list` (alias: `ls`)
 Displays the complete catalog of 27 architectural skills grouped across 10 domains:
 
 ```bash
@@ -92,7 +160,7 @@ kmp-skills list
 
 ---
 
-### 4. `kmp-skills inject <skill-name>`
+### 7. `kmp-skills inject <skill-name>`
 Injects a single specific skill into your project or prints it to standard output:
 
 ```bash

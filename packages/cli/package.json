@@ -30,11 +30,14 @@
   ],
   "scripts": {
     "build:skills": "node scripts/generate-skills-data.mjs",
-    "build": "npm run build:skills && tsc",
+    "build:curriculum": "node scripts/generate-curriculum-data.mjs",
+    "build:data": "npm run build:skills && npm run build:curriculum",
+    "build": "npm run build:data && tsc",
     "watch": "tsc -w",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@clack/prompts": "^1.8.1",
     "commander": "^13.1.0",
     "picocolors": "^1.1.1"
   },
