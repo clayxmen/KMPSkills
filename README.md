@@ -14,7 +14,7 @@
 ---
 
 <p align="center">
-  <b>English</b> | <a href="README.vi.md">Tiếng Việt</a> | <a href="ARCHITECTURE.md">Architecture Blueprint</a> | <a href="CONTRIBUTING.md">Contributing Guide</a>
+  <b>English</b> | <a href="README.vi.md">Tiếng Việt</a> | <a href="curriculum/README.md">🎓 10-Level Curriculum</a> | <a href="ARCHITECTURE.md">Architecture Blueprint</a> | <a href="CONTRIBUTING.md">Contributing Guide</a>
 </p>
 
 ---
@@ -27,6 +27,8 @@ Crafted with the dual standards of a **Principal Systems/Mobile Architect** and 
 
 Whether building for **Android (API 24–36)**, **iOS (SwiftUI/UIKit)**, **Desktop (Windows/macOS/Linux)**, **Web (Wasm)**, or **Backend (Ktor Server)**, KMPSkills provides the authoritative golden standard.
 
+> 🎓 **Masterclass Curriculum**: Looking for a complete, structured textbook from zero to master architect? Explore the [**10-Level Android Native & KMP Curriculum**](curriculum/README.md).
+>
 > 📖 **Deep Dive**: For full technical specifications, module isolation constraints, and memory governance rules, read the [ARCHITECTURE.md](ARCHITECTURE.md) blueprint.
 
 ---

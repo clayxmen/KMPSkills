@@ -14,7 +14,7 @@
 ---
 
 <p align="center">
-  <a href="README.md">English</a> | <b>Tiếng Việt</b> | <a href="ARCHITECTURE.vi.md">Thiết Kế Kiến Trúc</a> | <a href="CONTRIBUTING.vi.md">Hướng Dẫn Đóng Góp</a>
+  <a href="README.md">English</a> | <b>Tiếng Việt</b> | <a href="curriculum/README.md">🎓 Giáo Trình 10 Cấp Độ</a> | <a href="ARCHITECTURE.vi.md">Thiết Kế Kiến Trúc</a> | <a href="CONTRIBUTING.vi.md">Hướng Dẫn Đóng Góp</a>
 </p>
 
 ---
@@ -29,6 +29,8 @@ Dự án được xây dựng dựa trên tiêu chuẩn kép khắt khe:
 
 Kho lưu trữ này cung cấp **27 Siêu Skills thực chiến** bao phủ từ Mobile, Desktop, Web Wasm cho đến Backend Ktor Server.
 
+> 🎓 **Giáo Trình Đào Tạo Thực Chiến**: Bạn muốn học bài bản từ Zero đến Master Architect? Khám phá ngay [**Bộ Giáo Trình 10 Cấp Độ Android & KMP**](curriculum/README.md).
+>
 > 📖 **Khám Phá Chi Tiết**: Để tra cứu chi tiết phân bổ module, ranh giới phụ thuộc và cơ chế quản lý bộ nhớ, vui lòng xem tài liệu [ARCHITECTURE.vi.md](ARCHITECTURE.vi.md).
 
 ---
