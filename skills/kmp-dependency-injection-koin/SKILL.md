@@ -1,0 +1,349 @@
+---
+name: kmp-dependency-injection-koin
+description: |
+  Production-ready guide for implementing lightweight, high-performance Dependency Injection in Kotlin Multiplatform
+  and Compose Multiplatform using Koin 4.x. Covers cross-platform module declaration, constructor injection,
+  ViewModel/Screen scoping, multiplatform initialization (Android Application, iOS Swift bridge, Desktop main, Wasm),
+  and compile-time module verification.
+
+  Use this skill whenever:
+    1. Setting up or refactoring Dependency Injection in a Kotlin Multiplatform codebase.
+    2. Wiring Domain UseCases, Repositories, DataSources, and ViewModels with Koin.
+    3. Managing multiplatform platform-specific dependencies (e.g., SQLite driver, KeyStore, Context).
+    4. Scoping lifecycle-aware dependencies to navigation graphs, screens, or sessions.
+    5. Writing unit and integration tests with isolated Koin test modules.
+
+  Do NOT use when:
+    1. Using pure compile-time annotation processors like Dagger-Hilt (Hilt is Android-only; for pure compile-time KMP consider kotlin-inject).
+    2. Building Service Locator singletons manually without a DI framework.
+license: MIT
+metadata:
+  version: v1.0
+  framework: "Koin 4.x & Kotlin Multiplatform 2.x"
+  architect_tier: "Principal Mobile Architect & Prompt Engineer"
+---
+
+# 💉 Koin Multiplatform Dependency Injection & Scope Governance
+
+This skill provides an enterprise architectural blueprint for implementing Dependency Injection across **Android, iOS, Desktop (JVM), and Web (Wasm)** using **Koin 4.x** with native Compose Multiplatform ViewModel support.
+
+---
+
+## 🧩 1. Koin Multiplatform Module Topology
+
+Structure your DI definitions into modular, decoupled slices matching your Feature-First architecture:
+
+```mermaid
+graph TD
+    AppInit["Platform Init Entry Point<br/>(Android Application / iOS Swift / Desktop main)"]
+    AppInit --> InitKoin["initKoin() in commonMain"]
+    
+    InitKoin --> CoreModule["coreModule<br/>(Dispatchers, Clock, Serializer)"]
+    InitKoin --> NetworkModule["networkModule<br/>(HttpClient, BaseUrl, Json)"]
+    InitKoin --> DatabaseModule["databaseModule<br/>(Room/SQLDelight, DAOs)"]
+    InitKoin --> PlatformModule["platformModule (expect/actual)<br/>(Context, Drivers, Biometrics)"]
+    InitKoin --> FeatureModules["featureModules<br/>(UseCases, Repositories, ViewModels)"]
+```
+
+---
+
+## 💻 2. Core Module Definitions (`commonMain`)
+
+### Core & Network Module
+```kotlin
+package com.example.app.core.di
+
+import com.example.app.core.dispatchers.AppDispatchers
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logging
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
+import kotlinx.serialization.json.Json
+import org.koin.core.module.dsl.singleOf
+import org.koin.dsl.module
+
+val coreModule = module {
+    single<AppDispatchers> {
+        AppDispatchers(
+            io = Dispatchers.IO,
+            main = Dispatchers.Main,
+            default = Dispatchers.Default
+        )
+    }
+
+    single {
+        Json {
+            prettyPrint = true
+            isLenient = true
+            ignoreUnknownKeys = true
+            coerceInputValues = true
+        }
+    }
+}
+
+val networkModule = module {
+    single {
+        HttpClient {
+            install(ContentNegotiation) {
+                json(get())
+            }
+            install(Logging) {
+                level = LogLevel.INFO
+            }
+        }
+    }
+}
+```
+
+### Feature Module (Domain, Data & ViewModel)
+```kotlin
+package com.example.app.features.product.di
+
+import com.example.app.features.product.data.datasource.remote.ProductRemoteDataSource
+import com.example.app.features.product.data.repository.ProductRepositoryImpl
+import com.example.app.features.product.domain.repository.ProductRepository
+import com.example.app.features.product.domain.usecase.GetAvailableProductsUseCase
+import com.example.app.features.product.presentation.ProductCatalogViewModel
+import org.koin.core.module.dsl.factoryOf
+import org.koin.core.module.dsl.singleOf
+import org.koin.core.module.dsl.viewModelOf
+import org.koin.dsl.bind
+import org.koin.dsl.module
+
+val productModule = module {
+    // Data Sources
+    singleOf(::ProductRemoteDataSource)
+
+    // Repositories (Bind interface to implementation)
+    singleOf(::ProductRepositoryImpl) bind ProductRepository::class
+
+    // UseCases (Lightweight factory instances)
+    factoryOf(::GetAvailableProductsUseCase)
+
+    // Lifecycle-Aware ViewModel for Compose Multiplatform
+    viewModelOf(::ProductCatalogViewModel)
+}
+```
+
+---
+
+## 🔌 3. Multiplatform `expect/actual` Platform Module
+
+When a dependency requires native platform primitives (such as Android `Context` or Darwin SQLite Drivers), use an `expect/actual` module declaration:
+
+### `commonMain/kotlin/.../PlatformModule.kt`
+```kotlin
+package com.example.app.core.di
+
+import org.koin.core.module.Module
+
+expect val platformModule: Module
+```
+
+### `androidMain/kotlin/.../PlatformModule.android.kt`
+```kotlin
+package com.example.app.core.di
+
+import androidx.room.Room
+import com.example.app.core.database.AppDatabase
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.module.Module
+import org.koin.dsl.module
+
+actual val platformModule: Module = module {
+    single<AppDatabase> {
+        val context = androidContext()
+        val dbFile = context.getDatabasePath("app_database.db")
+        Room.databaseBuilder<AppDatabase>(
+            context = context,
+            name = dbFile.absolutePath
+        ).build()
+    }
+}
+```
+
+### `iosMain/kotlin/.../PlatformModule.ios.kt`
+```kotlin
+package com.example.app.core.di
+
+import androidx.room.Room
+import com.example.app.core.database.AppDatabase
+import com.example.app.core.database.instantiateImpl
+import org.koin.core.module.Module
+import org.koin.dsl.module
+import platform.Foundation.NSDocumentDirectory
+import platform.Foundation.NSFileManager
+import platform.Foundation.NSUserDomainMask
+
+actual val platformModule: Module = module {
+    single<AppDatabase> {
+        val documentDirectory = NSFileManager.defaultManager.URLForDirectory(
+            directory = NSDocumentDirectory,
+            inDomain = NSUserDomainMask,
+            appropriateForURL = null,
+            create = false,
+            error = null
+        )
+        val dbFilePath = "${documentDirectory?.path}/app_database.db"
+        Room.databaseBuilder<AppDatabase>(
+            name = dbFilePath,
+            factory = { AppDatabase::class.instantiateImpl() }
+        ).build()
+    }
+}
+```
+
+---
+
+## 🚀 4. Multiplatform Initialization Hooks
+
+### `commonMain/kotlin/.../KoinInitializer.kt`
+```kotlin
+package com.example.app.core.di
+
+import com.example.app.features.product.di.productModule
+import org.koin.core.KoinApplication
+import org.koin.core.context.startKoin
+import org.koin.dsl.KoinAppDeclaration
+
+fun initKoin(appDeclaration: KoinAppDeclaration = {}): KoinApplication =
+    startKoin {
+        appDeclaration()
+        modules(
+            coreModule,
+            networkModule,
+            platformModule,
+            productModule
+        )
+    }
+```
+
+### Platform Entry Points:
+
+#### Android Application (`androidMain`)
+```kotlin
+package com.example.app
+
+import android.app.Application
+import com.example.app.core.di.initKoin
+import org.koin.android.ext.koin.androidContext
+import org.koin.android.ext.koin.androidLogger
+import org.koin.core.logger.Level
+
+class MainApplication : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        initKoin {
+            androidLogger(Level.ERROR)
+            androidContext(this@MainApplication)
+        }
+    }
+}
+```
+
+#### iOS Entry via Swift (`iosApp/iOSApp.swift`)
+```swift
+import SwiftUI
+import SharedApp
+
+@main
+struct iOSApp: App {
+    init() {
+        KoinInitializerKt.doInitKoin { _ in }
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
+```
+
+#### Desktop JVM (`desktopMain`)
+```kotlin
+package com.example.app
+
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import com.example.app.core.di.initKoin
+
+fun main() {
+    initKoin()
+    application {
+        Window(onCloseRequest = ::exitApplication, title = "Desktop App") {
+            App()
+        }
+    }
+}
+```
+
+---
+
+## 📱 5. ViewModel Injection in Compose Multiplatform
+
+Inject ViewModels cleanly in CMP without leaking Koin into Composable signatures:
+
+```kotlin
+package com.example.app.features.product.presentation
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.koin.compose.viewmodel.koinViewModel
+
+@Composable
+fun ProductCatalogRoot(
+    viewModel: ProductCatalogViewModel = koinViewModel()
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    ProductCatalogContent(
+        state = state,
+        onIntent = viewModel::handleIntent
+    )
+}
+```
+
+---
+
+## 🧪 6. Testing Koin Configurations
+
+Verify that all dependencies and modules can be satisfied at startup:
+
+```kotlin
+package com.example.app.di
+
+import com.example.app.core.di.coreModule
+import com.example.app.core.di.networkModule
+import com.example.app.features.product.di.productModule
+import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
+import org.koin.dsl.module
+import kotlin.test.AfterTest
+import kotlin.test.Test
+
+class KoinModuleCheckTest {
+
+    @AfterTest
+    fun tearDown() {
+        stopKoin()
+    }
+
+    @Test
+    fun verifyKoinConfiguration() {
+        val testApp = startKoin {
+            modules(
+                coreModule,
+                networkModule,
+                productModule
+            )
+        }
+        // Assert that the container initialized successfully without dangling bindings
+        kotlin.test.assertNotNull(testApp)
+    }
+}
+```

@@ -1,0 +1,202 @@
+---
+name: kmp-ci-cd-matrix-automation
+description: |
+  Master-tier guide for building automated multi-platform CI/CD pipelines in Kotlin Multiplatform using GitHub Actions.
+  Features matrix build runners (Linux, macOS, Windows), static analysis gating (ktlint, Detekt),
+  headless test suites, and multi-target artifact packaging (Android AAB/APK, iOS XCFramework, Desktop, Wasm).
+
+  Use this skill whenever:
+    1. Setting up automated CI workflows for multi-target KMP repositories on GitHub Actions.
+    2. Enforcing strict static analysis (ktlint, Detekt) and test gates before merging PRs.
+    3. Building release artifacts across Android (AAB), iOS (XCFramework), Desktop (MSI/DMG), and Web (Wasm).
+    4. Optimizing CI pipeline runtime using Gradle configuration caching and dependency cache actions.
+    5. Automating versioned GitHub Releases with attached platform binary archives.
+
+  Do NOT use when:
+    1. Configuring local Gradle files or Version Catalogs (use `kmp-gradle-version-catalog`).
+    2. Managing in-app runtime dependency injection (use `kmp-dependency-injection-koin`).
+license: MIT
+metadata:
+  version: v1.0
+  framework: "GitHub Actions & Gradle Multiplatform"
+  architect_tier: "Principal DevOps & Release Automation Engineer"
+---
+
+# 🚀 KMP CI/CD Matrix Automation & Release Pipelines
+
+This skill provides an enterprise architectural blueprint for automated **Continuous Integration and Continuous Delivery (CI/CD)** in **Kotlin Multiplatform (KMP)** using **GitHub Actions**.
+
+---
+
+## 🏗️ 1. Multiplatform CI/CD Pipeline Topology
+
+```mermaid
+graph TD
+    Trigger["Git Push / Pull Request"] --> GateJob["1. Quality Gate (Linux Runner)<br/>ktlint + Detekt + commonTest"]
+    
+    GateJob --> MatrixRelease{"2. Matrix Build Pipeline"}
+    
+    MatrixRelease --> AndroidBuild["Android (Linux Runner)<br/>bundleRelease (AAB) + assembleRelease (APK)"]
+    MatrixRelease --> IOSBuild["iOS (macOS M-series Runner)<br/>assembleReleaseXCFramework"]
+    MatrixRelease --> DesktopBuild["Desktop (Windows / macOS / Linux Runners)<br/>packageDistributionForCurrentOS"]
+    MatrixRelease --> WebBuild["Web (Linux Runner)<br/>wasmJsBrowserDistribution"]
+    
+    AndroidBuild --> Publish["3. GitHub Release / Artifacts"]
+    IOSBuild --> Publish
+    DesktopBuild --> Publish
+    WebBuild --> Publish
+```
+
+---
+
+## ⚙️ 2. Production Pull Request Workflow (`.github/workflows/ci.yml`)
+
+Runs on every pull request to enforce zero compiler warnings, style compliance, and passing unit tests:
+
+```yaml
+name: KMP Continuous Integration
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle Cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Run Static Code Analysis
+        run: ./gradlew lint check --continue
+
+      - name: Run Common & JVM Unit Tests
+        run: ./gradlew :app:shared:jvmTest :app:shared:testAndroidHostTest
+
+      - name: Publish Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/build/reports/tests/'
+```
+
+---
+
+## 📦 3. Multiplatform Release Matrix (`.github/workflows/release.yml`)
+
+Generates release binaries across Mobile, Desktop, and Web when a new Git tag is pushed (`v*.*.*`):
+
+```yaml
+name: Multiplatform Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-android:
+    name: Build Android Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Android Release AAB & APK
+        run: ./gradlew :app:androidApp:bundleRelease :app:androidApp:assembleRelease
+
+      - name: Upload Android Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: |
+            app/androidApp/build/outputs/bundle/release/*.aab
+            app/androidApp/build/outputs/apk/release/*.apk
+
+  build-ios-xcframework:
+    name: Build iOS XCFramework
+    runs-on: macos-14 # Apple Silicon M2/M3 runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Static XCFramework
+        run: ./gradlew :app:shared:assembleSharedAppReleaseXCFramework
+
+      - name: Compress XCFramework
+        run: zip -r SharedApp.xcframework.zip app/shared/build/XCFrameworks/release/SharedApp.xcframework
+
+      - name: Upload iOS XCFramework
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-xcframework
+          path: SharedApp.xcframework.zip
+
+  build-web-wasm:
+    name: Build Web Wasm Distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Wasm Distribution
+        run: ./gradlew :app:webApp:wasmJsBrowserDistribution
+
+      - name: Upload Web Assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-wasm-dist
+          path: app/webApp/build/dist/wasmJs/productionExecutable/
+```
+
+---
+
+## ⚡ 4. CI Cost & Speed Optimization Principles
+
+1. **Never use macOS runners for tasks that run on Linux**: GitHub Actions bills macOS runners at **10x** the rate of Ubuntu runners. Run all lints, unit tests, Android builds, and Wasm compilations on `ubuntu-latest`.
+2. **Enable Gradle Dependency Caching**: Use `gradle/actions/setup-gradle@v4` to cache Gradle dependencies, wrapper binaries, and local build outputs.
+3. **Cancel Stale Pull Request Runs**: Use `concurrency` groups with `cancel-in-progress: true` so rapid commits cancel previous active runs immediately.
+
+---
+
+## 🚫 5. CI/CD Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Hardcoding Signing Keys in Repository** | Committing `.jks` keystores or Apple certificates into Git breaches security. | Store Base64-encoded keystores in GitHub Actions Secrets (`KEYSTORE_BASE64`). |
+| **Running Entire Build on PR** | Building iOS and Desktop distributions on every single documentation edit wastes CI minutes. | Run only fast Lint & Tests on PRs; gate heavy distribution packaging to Tag releases. |
+| **Missing Failure Artifact Uploads** | CI fails with cryptic logs and test HTML reports are lost upon runner termination. | Always include `uses: actions/upload-artifact@v4` with `if: always()` for test reports. |
+| **Disabling Gradle Build Cache** | Recompiling KMP multi-target dependencies from scratch every run inflates CI time from 3m to 25m. | Enable Gradle build cache and configuration cache. |

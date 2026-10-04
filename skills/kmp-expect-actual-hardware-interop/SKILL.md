@@ -1,0 +1,311 @@
+---
+name: kmp-expect-actual-hardware-interop
+description: |
+  Master-tier guide for bridging native device hardware and OS capabilities across Android, iOS, Desktop, and Web.
+  Covers the Interface-Factory expect/actual pattern, Biometric Authentication (Face ID/Fingerprint),
+  GPS Geolocation, Haptic Feedback, and System Clipboard with zero architectural leaks.
+
+  Use this skill whenever:
+    1. Implementing cross-platform access to device sensors, cameras, GPS, or biometrics.
+    2. Designing testable, decoupled hardware bridges using expect/actual factory providers.
+    3. Handling runtime hardware permissions (Info.plist vs AndroidManifest) cleanly.
+    4. Providing fallbacks for Desktop and Web when physical mobile hardware is absent.
+    5. Eliminating brittle `expect class` hierarchies in favor of pure interface contracts.
+
+  Do NOT use when:
+    1. Interfacing with standard REST or WebSocket APIs (use `kmp-ktor-network-client`).
+    2. Writing pure UI layouts without native OS bridge requirements.
+license: MIT
+metadata:
+  version: v1.0
+  framework: "Kotlin Multiplatform 2.x expect/actual Architecture"
+  architect_tier: "Principal Hardware Bridge & Mobile Architect"
+---
+
+# 🔌 KMP expect/actual Hardware & Device Interop Mastery
+
+This skill provides an enterprise architectural blueprint for bridging native device sensors and hardware capabilities across **Android, iOS, Desktop (JVM), and Web (Wasm)**. It enforces the **Interface-over-Expect-Class Principle** to guarantee unit testability and dependency injection compatibility.
+
+---
+
+## 🏛️ 1. The Interface-Factory Bridge Pattern
+
+### ⚠️ The `expect class` Anti-Pattern
+```text
+❌ AVOID:
+expect class BiometricManager {
+    fun authenticate(): Boolean
+}
+(Result: Cannot be mocked in commonTest, rigid platform constructors, violates Open-Closed Principle)
+```
+
+### ✅ Modern Interface-Factory Architecture
+Declare pure Kotlin interfaces in `commonMain`, implement them via platform-native SDKs in `androidMain`/`iosMain`, and bind them via an `expect/actual` factory or Koin:
+
+```mermaid
+graph TD
+    subgraph commonMain
+        BioInterface["interface BiometricAuthenticator"]
+        UseCase["AuthenticateUserUseCase"]
+        UseCase --> BioInterface
+        Factory["expect fun createBiometricAuthenticator(): BiometricAuthenticator"]
+    end
+
+    subgraph androidMain
+        AndroidBio["AndroidBiometricAuthenticator<br/>(BiometricPrompt + FragmentActivity)"]
+        AndroidBio -.-> BioInterface
+    end
+
+    subgraph iosMain
+        IosBio["IosBiometricAuthenticator<br/>(LocalAuthentication / LAContext)"]
+        IosBio -.-> BioInterface
+    end
+
+    subgraph desktopMain
+        DesktopBio["DesktopBiometricAuthenticator<br/>(Simulated / System PIN fallback)"]
+        DesktopBio -.-> BioInterface
+    end
+```
+
+---
+
+## 🧬 2. Complete Hardware Bridge 1: Biometric Authentication
+
+### `commonMain/kotlin/.../BiometricAuthenticator.kt`
+```kotlin
+package com.example.app.core.hardware.biometrics
+
+sealed interface BiometricResult {
+    data object Success : BiometricResult
+    data class Failed(val reason: String) : BiometricResult
+    data object NotAvailable : BiometricResult
+}
+
+interface BiometricAuthenticator {
+    suspend fun canAuthenticate(): Boolean
+    suspend fun authenticate(title: String, subtitle: String): BiometricResult
+}
+
+expect fun createBiometricAuthenticator(): BiometricAuthenticator
+```
+
+### `androidMain/kotlin/.../BiometricAuthenticator.android.kt`
+```kotlin
+package com.example.app.core.hardware.biometrics
+
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
+lateinit var currentActivity: () -> FragmentActivity?
+
+class AndroidBiometricAuthenticator : BiometricAuthenticator {
+
+    override suspend fun canAuthenticate(): Boolean {
+        val activity = currentActivity() ?: return false
+        val manager = BiometricManager.from(activity)
+        return manager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        ) == BiometricManager.BIOMETRIC_SUCCESS
+    }
+
+    override suspend fun authenticate(title: String, subtitle: String): BiometricResult {
+        val activity = currentActivity() ?: return BiometricResult.NotAvailable
+
+        return suspendCancellableCoroutine { continuation ->
+            val executor = ContextCompat.getMainExecutor(activity)
+            val prompt = BiometricPrompt(
+                activity,
+                executor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        continuation.resume(BiometricResult.Success)
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        continuation.resume(BiometricResult.Failed(errString.toString()))
+                    }
+
+                    override fun onAuthenticationFailed() {
+                        // Keep prompt open for retry
+                    }
+                }
+            )
+
+            val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                .setTitle(title)
+                .setSubtitle(subtitle)
+                .setAllowedAuthenticators(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
+                .build()
+
+            prompt.authenticate(promptInfo)
+            continuation.invokeOnCancellation { prompt.cancelAuthentication() }
+        }
+    }
+}
+
+actual fun createBiometricAuthenticator(): BiometricAuthenticator = AndroidBiometricAuthenticator()
+```
+
+### `iosMain/kotlin/.../BiometricAuthenticator.ios.kt`
+```kotlin
+package com.example.app.core.hardware.biometrics
+
+import kotlinx.cinterop.*
+import platform.Foundation.NSError
+import platform.LocalAuthentication.LAContext
+import platform.LocalAuthentication.LAPolicyDeviceOwnerAuthentication
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+
+class IosBiometricAuthenticator : BiometricAuthenticator {
+
+    override suspend fun canAuthenticate(): Boolean {
+        val context = LAContext()
+        return memScoped {
+            val error = alloc<ObjCObjectVar<NSError?>>()
+            context.canEvaluatePolicy(LAPolicyDeviceOwnerAuthentication, error.ptr)
+        }
+    }
+
+    override suspend fun authenticate(title: String, subtitle: String): BiometricResult {
+        val context = LAContext()
+
+        return suspendCancellableCoroutine { continuation ->
+            context.evaluatePolicy(
+                policy = LAPolicyDeviceOwnerAuthentication,
+                localizedReason = "$title: $subtitle"
+            ) { success, nsError ->
+                if (success) {
+                    continuation.resume(BiometricResult.Success)
+                } else {
+                    val message = nsError?.localizedDescription ?: "Authentication failed"
+                    continuation.resume(BiometricResult.Failed(message))
+                }
+            }
+        }
+    }
+}
+
+actual fun createBiometricAuthenticator(): BiometricAuthenticator = IosBiometricAuthenticator()
+```
+
+---
+
+## 📍 3. Complete Hardware Bridge 2: Geolocation & GPS
+
+### `commonMain/kotlin/.../LocationTracker.kt`
+```kotlin
+package com.example.app.core.hardware.location
+
+import kotlinx.coroutines.flow.Flow
+
+data class Coordinates(val latitude: Double, val longitude: Double, val accuracyMeters: Float)
+
+interface LocationTracker {
+    suspend fun getCurrentLocation(): Result<Coordinates>
+    fun observeLocation(): Flow<Coordinates>
+}
+
+expect fun createLocationTracker(): LocationTracker
+```
+
+---
+
+## 📳 4. Complete Hardware Bridge 3: Haptic Vibrations
+
+### `commonMain/kotlin/.../HapticFeedbackDriver.kt`
+```kotlin
+package com.example.app.core.hardware.haptics
+
+enum class HapticStyle { LIGHT, MEDIUM, HEAVY, SUCCESS, ERROR }
+
+interface HapticFeedbackDriver {
+    fun performHaptic(style: HapticStyle)
+}
+
+expect fun createHapticFeedbackDriver(): HapticFeedbackDriver
+```
+
+### `iosMain/kotlin/.../HapticFeedbackDriver.ios.kt`
+```kotlin
+package com.example.app.core.hardware.haptics
+
+import platform.UIKit.UIImpactFeedbackGenerator
+import platform.UIKit.UIImpactFeedbackStyle
+import platform.UIKit.UINotificationFeedbackGenerator
+import platform.UIKit.UINotificationFeedbackType
+
+class IosHapticFeedbackDriver : HapticFeedbackDriver {
+    override fun performHaptic(style: HapticStyle) {
+        when (style) {
+            HapticStyle.LIGHT -> UIImpactFeedbackGenerator(UIImpactFeedbackStyle.UIImpactFeedbackStyleLight).impactOccurred()
+            HapticStyle.MEDIUM -> UIImpactFeedbackGenerator(UIImpactFeedbackStyle.UIImpactFeedbackStyleMedium).impactOccurred()
+            HapticStyle.HEAVY -> UIImpactFeedbackGenerator(UIImpactFeedbackStyle.UIImpactFeedbackStyleHeavy).impactOccurred()
+            HapticStyle.SUCCESS -> UINotificationFeedbackGenerator().notificationOccurred(UINotificationFeedbackType.UINotificationFeedbackTypeSuccess)
+            HapticStyle.ERROR -> UINotificationFeedbackGenerator().notificationOccurred(UINotificationFeedbackType.UINotificationFeedbackTypeError)
+        }
+    }
+}
+
+actual fun createHapticFeedbackDriver(): HapticFeedbackDriver = IosHapticFeedbackDriver()
+```
+
+---
+
+## 📋 5. Complete Hardware Bridge 4: System Clipboard
+
+### `commonMain/kotlin/.../ClipboardManager.kt`
+```kotlin
+package com.example.app.core.hardware.clipboard
+
+interface AppClipboardManager {
+    suspend fun copy(text: String)
+    suspend fun paste(): String?
+}
+
+expect fun createAppClipboardManager(): AppClipboardManager
+```
+
+---
+
+## 📋 6. Manifest & Info.plist Permissions Matrix
+
+Hardware bridges fail silently if OS permission declarations are omitted:
+
+### Android (`AndroidManifest.xml`)
+```xml
+<!-- Biometrics -->
+<uses-permission android:name="android.permission.USE_BIOMETRIC" />
+<!-- GPS -->
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+<!-- Vibration -->
+<uses-permission android:name="android.permission.VIBRATE" />
+```
+
+### iOS (`iosApp/iosApp/Info.plist`)
+```xml
+<!-- Face ID -->
+<key>NSFaceIDUsageDescription</key>
+<string>This app requires Face ID for biometric authentication.</string>
+<!-- GPS -->
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>This app requires location access to find nearby services.</string>
+```
+
+---
+
+## 🚫 7. Hardware Interop Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Using `expect class` for Hardware** | `expect class` forces identical constructors across platforms and cannot be mocked with `FakeDeviceDriver` in unit tests. | Define pure `interface` in `commonMain`; expose factory `expect fun create...(): Interface`. |
+| **Holding Context References in Native Drivers** | Storing `Activity` inside an Android driver singleton causes permanent memory leaks when the screen rotates. | Store weak references or pass the current Activity via a scoped provider. |
+| **Assuming GPS is Available on Desktop** | Desktops without GPS hardware crash or hang when querying physical location. | Return `Result.failure(UnsupportedOperationException("Hardware unavailable on Desktop"))`. |
+| **Forgetting `continuation.invokeOnCancellation`** | User navigates away while native Biometric prompt is visible; native dialog remains open and leaks callbacks. | Always cancel native dialogs inside `invokeOnCancellation { prompt.cancel() }`. |

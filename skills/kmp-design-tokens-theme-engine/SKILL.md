@@ -1,0 +1,330 @@
+---
+name: kmp-design-tokens-theme-engine
+description: |
+  Universal Design Tokens, Typography, and Multi-Theme Engine for Compose Multiplatform (CMP).
+  Implements Material 3 dynamic color schemes, custom semantic design tokens (Neobrutalism, High-Contrast, Minimalist),
+  CompositionLocal hierarchy, and instant Dark/Light/System theme toggling across Android, iOS, Desktop, and Web.
+
+  Use this skill whenever:
+    1. Setting up or refactoring design tokens (Colors, Typography, Spacing, Shapes, Shadows) in Compose Multiplatform.
+    2. Implementing dynamic or multi-theme switching (Light, Dark, AMOLED Black, Neobrutalism).
+    3. Defining custom semantic color tokens not provided by default Material 3 (Success, Warning, Info, Hard-Borders).
+    4. Building high-contrast accessible palettes complying with WCAG AAA standards.
+    5. Bundling offline custom fonts and typography styles cleanly in commonMain.
+
+  Do NOT use when:
+    1. Building atomic button or card components (use `kmp-compose-multiplatform-ui`).
+    2. Handling window resizing or multi-pane tablet layouts (use `kmp-adaptive-responsive-layouts`).
+license: MIT
+metadata:
+  version: v1.0
+  framework: "Compose Multiplatform 1.7+ & Material 3"
+  architect_tier: "Principal Design Technologist & Mobile Architect"
+---
+
+# 🎨 KMP Design Tokens & Multi-Theme Engine
+
+This skill provides an enterprise design system engine for **Compose Multiplatform (CMP)**. It decouples design primitives from widget implementations using **Type-Safe Design Tokens**, **CompositionLocal providers**, and **Semantic Theme Extensions** (supporting Modern Material 3 and Bold Neobrutalism).
+
+---
+
+## 📐 1. Design Token Architecture & CompositionLocal Hierarchy
+
+```mermaid
+graph TD
+    AppTheme["AppTheme(darkTheme: Boolean, variant: ThemeVariant)"]
+    
+    AppTheme --> M3Bridge["MaterialTheme Bridge<br/>(ColorScheme, Typography, Shapes)"]
+    AppTheme --> TokenProvider["CompositionLocalProvider"]
+    
+    TokenProvider --> LocalColors["LocalAppColors (Custom Semantics)"]
+    TokenProvider --> LocalTypography["LocalAppTypography (Custom Fonts)"]
+    TokenProvider --> LocalSpacing["LocalAppSpacing (Layout Grids)"]
+    TokenProvider --> LocalBorders["LocalAppBorders (Neobrutalism Tokens)"]
+```
+
+---
+
+## 🎨 2. Extended Semantic Color System
+
+Material 3 lacks dedicated semantic colors like `success`, `warning`, or high-impact `border` tokens. We define an immutable token container:
+
+```kotlin
+package com.example.app.core.theme
+
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+
+@Immutable
+data class AppColors(
+    val primary: Color,
+    val onPrimary: Color,
+    val background: Color,
+    val onBackground: Color,
+    val surface: Color,
+    val onSurface: Color,
+    val surfaceVariant: Color,
+    val outline: Color,
+    
+    // Custom Semantic Tokens
+    val success: Color,
+    val onSuccess: Color,
+    val warning: Color,
+    val onWarning: Color,
+    val hardBorder: Color,
+    val hardShadow: Color
+)
+
+val LightAppColors = AppColors(
+    primary = Color(0xFF2563EB),       // Vibrant Blue
+    onPrimary = Color(0xFFFFFFFF),
+    background = Color(0xFFF8FAFC),    // Slate 50
+    onBackground = Color(0xFF0F172A),  // Slate 900
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0xFFE2E8F0),
+    outline = Color(0xFFCBD5E1),
+    success = Color(0xFF16A34A),
+    onSuccess = Color(0xFFFFFFFF),
+    warning = Color(0xFFD97706),
+    onWarning = Color(0xFFFFFFFF),
+    hardBorder = Color(0xFF000000),    // Neobrutalism black outline
+    hardShadow = Color(0xFF1E293B)
+)
+
+val DarkAppColors = AppColors(
+    primary = Color(0xFF60A5FA),       // Soft Blue
+    onPrimary = Color(0xFF0F172A),
+    background = Color(0xFF090D16),    // Deep Midnight
+    onBackground = Color(0xFFF1F5F9),
+    surface = Color(0xFF131B2E),
+    onSurface = Color(0xFFF1F5F9),
+    surfaceVariant = Color(0xFF1E293B),
+    outline = Color(0xFF334155),
+    success = Color(0xFF22C55E),
+    onSuccess = Color(0xFF0F172A),
+    warning = Color(0xFFFBBF24),
+    onWarning = Color(0xFF0F172A),
+    hardBorder = Color(0xFFFFFFFF),
+    hardShadow = Color(0xFF000000)
+)
+
+val LocalAppColors = staticCompositionLocalOf { LightAppColors }
+```
+
+---
+
+## 📏 3. Spacing, Elevation & Border Tokens
+
+Never hardcode arbitrary `dp` margins in composables. Enforce an 8-point design grid:
+
+```kotlin
+package com.example.app.core.theme
+
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+@Immutable
+data class AppSpacing(
+    val xxs: Dp = 2.dp,
+    val xs: Dp = 4.dp,
+    val sm: Dp = 8.dp,
+    val md: Dp = 16.dp,
+    val lg: Dp = 24.dp,
+    val xl: Dp = 32.dp,
+    val xxl: Dp = 48.dp
+)
+
+@Immutable
+data class AppBorders(
+    val thin: Dp = 1.dp,
+    val standard: Dp = 2.dp,
+    val brutal: Dp = 3.dp,
+    val shadowOffset: Dp = 4.dp
+)
+
+val LocalAppSpacing = staticCompositionLocalOf { AppSpacing() }
+val LocalAppBorders = staticCompositionLocalOf { AppBorders() }
+```
+
+---
+
+## 🔤 4. Cross-Platform Typography Tokens
+
+```kotlin
+package com.example.app.core.theme
+
+import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+fun createAppTypography(fontFamily: FontFamily = FontFamily.SansSerif): Typography {
+    return Typography(
+        displayLarge = TextStyle(
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 34.sp,
+            lineHeight = 40.sp,
+            letterSpacing = (-0.25).sp
+        ),
+        titleLarge = TextStyle(
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 20.sp,
+            lineHeight = 26.sp
+        ),
+        bodyLarge = TextStyle(
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Normal,
+            fontSize = 16.sp,
+            lineHeight = 24.sp,
+            letterSpacing = 0.5.sp
+        ),
+        labelLarge = TextStyle(
+            fontFamily = fontFamily,
+            fontWeight = FontWeight.Medium,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            letterSpacing = 0.1.sp
+        )
+    )
+}
+```
+
+---
+
+## 🛡️ 5. The Top-Level `AppTheme` Provider
+
+Wrap your application in `AppTheme`. It synchronizes Material 3 standard components with custom design tokens:
+
+```kotlin
+package com.example.app.core.theme
+
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+
+@Composable
+fun AppTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    val appColors = if (darkTheme) DarkAppColors else LightAppColors
+    val appSpacing = AppSpacing()
+    val appBorders = AppBorders()
+    val typography = createAppTypography()
+
+    // Sync with Material 3 ColorScheme
+    val m3ColorScheme = if (darkTheme) {
+        darkColorScheme(
+            primary = appColors.primary,
+            onPrimary = appColors.onPrimary,
+            background = appColors.background,
+            onBackground = appColors.onBackground,
+            surface = appColors.surface,
+            onSurface = appColors.onSurface,
+            surfaceVariant = appColors.surfaceVariant,
+            outline = appColors.outline
+        )
+    } else {
+        lightColorScheme(
+            primary = appColors.primary,
+            onPrimary = appColors.onPrimary,
+            background = appColors.background,
+            onBackground = appColors.onBackground,
+            surface = appColors.surface,
+            onSurface = appColors.onSurface,
+            surfaceVariant = appColors.surfaceVariant,
+            outline = appColors.outline
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalAppColors provides appColors,
+        LocalAppSpacing provides appSpacing,
+        LocalAppBorders provides appBorders
+    ) {
+        MaterialTheme(
+            colorScheme = m3ColorScheme,
+            typography = typography,
+            content = content
+        )
+    }
+}
+
+// Convenient Object Accessor
+object Theme {
+    val colors: AppColors
+        @Composable
+        get() = LocalAppColors.current
+
+    val spacing: AppSpacing
+        @Composable
+        get() = LocalAppSpacing.current
+
+    val borders: AppBorders
+        @Composable
+        get() = LocalAppBorders.current
+}
+```
+
+---
+
+## 💎 6. Neobrutalism Modifier Recipe (Hard Shadows & Bold Outlines)
+
+Using custom design tokens, create a reusable Neobrutalism card modifier:
+
+```kotlin
+package com.example.app.core.theme
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun Modifier.neobrutalShadow(
+    shadowColor: Color = Theme.colors.hardShadow,
+    borderColor: Color = Theme.colors.hardBorder
+): Modifier {
+    val borderWidth = Theme.borders.standard
+    val offset = Theme.borders.shadowOffset
+
+    return this
+        .drawBehind {
+            // Draw crisp unblurred hard shadow rectangle
+            drawRect(
+                color = shadowColor,
+                topLeft = Offset(offset.toPx(), offset.toPx()),
+                size = size
+            )
+        }
+        .border(width = borderWidth, color = borderColor)
+}
+```
+
+---
+
+## 🚫 7. Theme Engine Anti-Patterns
+
+| Anti-Pattern | Why it Fails | Correct Solution |
+|---|---|---|
+| **Using `compositionLocalOf` for Static Tokens** | `compositionLocalOf` re-evaluates all children on every recomposition. | Use `staticCompositionLocalOf` for rarely changing structures like Themes, Spacing, and Colors. |
+| **Direct Color Literals in Screens** | Calling `Color.Red` or `Color(0xFF...)` prevents Dark Mode or palette rebranding from working. | Reference tokens through `Theme.colors.warning` or `MaterialTheme.colorScheme`. |
+| **Hardcoding System Bar Padding** | Hardcoding `top = 48.dp` causes clipping on Android 15 Edge-to-Edge or Dynamic Island on iOS. | Use `WindowInsets.safeDrawing` or `Scaffold` inner padding. |

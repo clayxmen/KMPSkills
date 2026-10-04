@@ -1,0 +1,226 @@
+---
+name: kmp-animation-motion-graphics
+description: |
+  Master-tier guide for 120Hz fluid motion graphics, Shared Element Transitions, physics-based springs,
+  and tactile micro-interactions in Compose Multiplatform (CMP).
+  Covers SharedTransitionLayout, GraphicsLayer render-thread transforms, skeleton shimmer effects,
+  and zero-jank frame budgeting across Android, iOS, Desktop (JVM), and Web (Wasm).
+
+  Use this skill whenever:
+    1. Implementing fluid Shared Element Transitions between List and Detail screens in Compose Multiplatform.
+    2. Adding physics-based spring bounciness, tactile button depressions, and gesture-driven motion.
+    3. Building skeleton loading shimmer effects without external dependencies.
+    4. Eliminating animation frame drops (jank) by offloading transforms to Modifier.graphicsLayer.
+    5. Designing accessible reduced-motion support across mobile and desktop.
+
+  Do NOT use when:
+    1. Writing GPU fragment shaders (use custom Skia shaders).
+    2. Managing screen navigation backstack state (use `kmp-navigation-compose-stack`).
+license: MIT
+metadata:
+  version: v1.0
+  framework: "Compose Multiplatform 1.7+ Animation Suite"
+  architect_tier: "Principal Motion Designer & Mobile Architect"
+---
+
+# ⚡ KMP 120Hz Animation, Physics Springs & Motion Graphics
+
+This skill provides an enterprise architectural blueprint for creating **fluid 120Hz animations**, **Shared Element Transitions**, and **tactile physics micro-interactions** in **Compose Multiplatform (CMP)** with zero frame drops.
+
+---
+
+## 🏎️ 1. The Zero-Jank Rendering Philosophy
+
+In Compose Multiplatform, animations must bypass the CPU measuring/layout phases and run directly on the **RenderThread / GPU compositor**:
+
+```mermaid
+graph LR
+    subgraph ❌ High CPU Jank (Re-measures layout each frame)
+        A1["animateDpAsState()"] --> B1["Modifier.offset(dp)"] --> C1["Layout Re-measure Pass (60-120x/sec)"]
+    end
+
+    subgraph ✅ Zero Jank RenderThread (Direct GPU transformation)
+        A2["animateFloatAsState()"] --> B2["Modifier.graphicsLayer { translationX, scaleX }"] --> C2["RenderThread GPU Matrix (Instant)"]
+    end
+```
+
+---
+
+## 🔀 2. Shared Element Transitions in Compose Multiplatform
+
+CMP 1.7+ introduces native support for seamless screen-to-screen hero transitions:
+
+```kotlin
+package com.example.app.core.ui.animation
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import com.example.app.core.ui.atoms.AppAsyncImage
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+fun SharedProductItem(
+    productId: String,
+    imageUrl: String,
+    title: String,
+    onClick: () -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope,
+    modifier: Modifier = Modifier
+) {
+    with(sharedTransitionScope) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(16.dp)
+        ) {
+            // Hero Image Transition
+            AppAsyncImage(
+                imageUrl = imageUrl,
+                contentDescription = title,
+                modifier = Modifier
+                    .size(80.dp)
+                    .sharedElement(
+                        state = rememberSharedContentState(key = "image-$productId"),
+                        animatedVisibilityScope = animatedVisibilityScope
+                    )
+                    .clip(RoundedCornerShape(12.dp))
+            )
+
+            Spacer(Modifier.width(16.dp))
+
+            // Text Title Transition
+            Text(
+                text = title,
+                modifier = Modifier.sharedBounds(
+                    sharedContentState = rememberSharedContentState(key = "text-$productId"),
+                    animatedVisibilityScope = animatedVisibilityScope
+                )
+            )
+        }
+    }
+}
+```
+
+---
+
+## 🪀 3. Physics Springs & Tactile Press Micro-Interactions
+
+Deliver juicy, tactile feedback when buttons or cards are pressed using `pointerInput` and `graphicsLayer`:
+
+```kotlin
+package com.example.app.core.ui.animation
+
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+
+enum class ButtonPressState { Pressed, Idle }
+
+@Composable
+fun Modifier.tactilePressBounce(
+    targetScale: Float = 0.94f,
+    onClick: (() -> Unit)? = null
+): Modifier {
+    var buttonState by remember { mutableStateOf(ButtonPressState.Idle) }
+
+    val scale by animateFloatAsState(
+        targetValue = if (buttonState == ButtonPressState.Pressed) targetScale else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "tactilePressScale"
+    )
+
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+        }
+        .pointerInput(buttonState) {
+            awaitPointerEventScope {
+                buttonState = if (buttonState == ButtonPressState.Pressed) {
+                    waitForUpOrCancellation()
+                    onClick?.invoke()
+                    ButtonPressState.Idle
+                } else {
+                    awaitFirstDown(requireUnconsumed = false)
+                    ButtonPressState.Pressed
+                }
+            }
+        }
+}
+```
+
+---
+
+## ✨ 4. High-Performance Shimmer Loading Modifier
+
+Create an animated gradient shimmer skeleton that runs entirely within drawing passes:
+
+```kotlin
+package com.example.app.core.ui.animation
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+
+fun Modifier.shimmerLoading(
+    shimmerColor: Color = Color.White.copy(alpha = 0.4f),
+    baseColor: Color = Color.LightGray.copy(alpha = 0.3f),
+    durationMillis: Int = 1200
+): Modifier = composed {
+    val transition = rememberInfiniteTransition(label = "shimmerTransition")
+
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerTranslate"
+    )
+
+    val brush = Brush.linearGradient(
+        colors = listOf(baseColor, shimmerColor, baseColor),
+        start = Offset.Zero,
+        end = Offset(x = translateAnim, y = translateAnim)
+    )
+
+    this.background(brush)
+}
+```
+
+---
+
+## 🚫 5. Animation Anti-Patterns & Performance Guardrails
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Animating `Modifier.padding` or `Modifier.offset(dp)`** | Triggers expensive measurement & layout passes on every single animation frame, causing CPU overheating and dropped frames on mobile. | Use `Modifier.graphicsLayer { translationX = ...; scaleX = ... }` which executes purely on GPU compositor. |
+| **Instantiating `AnimationSpec` inside Composable Body** | Writing `animationSpec = spring(...)` directly in loop/list items creates garbage objects on every recomposition. | Define specs as top-level `val` or wrap in `remember { spring(...) }`. |
+| **Ignoring Accessibility Reduced Motion** | Users with vestibular motion sensitivity can experience vertigo from rapid spring transitions. | Check platform accessibility preferences and fallback to instant transitions or gentle alpha fades. |
+| **Forgetting Cancellation on Recomposition** | Launching raw coroutine animations without cancelling previous jobs causes race conditions and jitter. | Use Compose `Animatable` or `animate*AsState` APIs which handle velocity preservation and interruption cleanly. |

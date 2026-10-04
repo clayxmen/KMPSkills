@@ -1,0 +1,249 @@
+---
+name: kmp-adaptive-responsive-layouts
+description: |
+  Master-tier guide for building adaptive, multi-device, and responsive layouts in Compose Multiplatform (CMP).
+  Covers WindowSizeClass classification (Compact, Medium, Expanded), Navigation switching (BottomBar vs NavigationRail vs NavigationDrawer),
+  List-Detail two-pane layouts, and multi-window resizing across Mobile, Foldables, Tablets, Desktop (JVM), and Web (Wasm).
+
+  Use this skill whenever:
+    1. Building layouts that adapt dynamically to Phone, Tablet, Foldable, Desktop, or Web screen sizes.
+    2. Implementing WindowSizeClass calculations in Compose Multiplatform without Android-only dependencies.
+    3. Switching navigation containers (BottomBar on mobile, NavigationRail on tablets, PermanentDrawer on desktop).
+    4. Designing canonical List-Detail / Master-Detail dual-pane layouts.
+    5. Handling dynamic window resizing and split-screen multitasking cleanly.
+
+  Do NOT use when:
+    1. Implementing pure CSS web responsive frameworks outside Compose.
+    2. Managing navigation backstack transitions (use `kmp-navigation-compose-stack`).
+license: MIT
+metadata:
+  version: v1.0
+  framework: "Compose Multiplatform 1.7+ & Material 3 Adaptive"
+  architect_tier: "Principal Mobile Architect & Prompt Engineer"
+---
+
+# 📐 KMP Adaptive & Responsive Multi-Device Layouts
+
+This skill provides an enterprise architectural blueprint for creating **adaptive and responsive layouts** in **Compose Multiplatform (CMP)**. It covers **WindowSizeClass classification**, **adaptive navigation scaffolding**, and **List-Detail dual-pane patterns** spanning Mobile, Foldables, Tablets, Desktop (JVM), and Web (Wasm).
+
+---
+
+## 📱 1. Multiplatform WindowSizeClass Architecture
+
+In CMP, layout decisions must respond to the active **window boundary width**, not physical hardware dimensions:
+
+```mermaid
+graph TD
+    WindowWidth["Active Window Width (dp)"]
+    
+    WindowWidth -->|< 600dp| Compact["Compact<br/>(Handset Portrait)<br/>➔ BottomNavigationBar + Single Pane"]
+    WindowWidth -->|600dp - 840dp| Medium["Medium<br/>(Foldable / Tablet Portrait)<br/>➔ NavigationRail + Optional Modal Sheet"]
+    WindowWidth -->|> 840dp| Expanded["Expanded<br/>(Tablet Landscape / Desktop / Web)<br/>➔ PermanentNavigationDrawer + List-Detail Two-Pane"]
+```
+
+---
+
+## 📏 2. Cross-Platform WindowSizeClass Evaluator
+
+Define a lightweight, zero-dependency `WindowSizeClass` calculation in `commonMain`:
+
+```kotlin
+package com.example.app.core.ui.adaptive
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+enum class WindowWidthClass { Compact, Medium, Expanded }
+enum class WindowHeightClass { Compact, Medium, Expanded }
+
+@Immutable
+data class AppWindowSizeClass(
+    val widthClass: WindowWidthClass,
+    val heightClass: WindowHeightClass
+) {
+    val isCompact: Boolean get() = widthClass == WindowWidthClass.Compact
+    val isMedium: Boolean get() = widthClass == WindowWidthClass.Medium
+    val isExpanded: Boolean get() = widthClass == WindowWidthClass.Expanded
+    val isTwoPaneEligible: Boolean get() = widthClass == WindowWidthClass.Expanded
+}
+
+@Composable
+fun rememberWindowSizeClass(windowWidth: Dp, windowHeight: Dp): AppWindowSizeClass {
+    val widthClass = when {
+        windowWidth < 600.dp -> WindowWidthClass.Compact
+        windowWidth < 840.dp -> WindowWidthClass.Medium
+        else -> WindowWidthClass.Expanded
+    }
+
+    val heightClass = when {
+        windowHeight < 480.dp -> WindowHeightClass.Compact
+        windowHeight < 900.dp -> WindowHeightClass.Medium
+        else -> WindowHeightClass.Expanded
+    }
+
+    return AppWindowSizeClass(widthClass, heightClass)
+}
+```
+
+---
+
+## 🏛️ 3. The Adaptive Scaffold Pattern
+
+Automatically swap navigation chrome based on the calculated `WindowWidthClass`:
+
+```kotlin
+package com.example.app.core.ui.adaptive
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+
+data class NavigationDestination(val title: String, val icon: ImageVector)
+
+@Composable
+fun AdaptiveNavigationScaffold(
+    windowSizeClass: AppWindowSizeClass,
+    selectedDestinationIndex: Int,
+    onDestinationSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    destinations: List<NavigationDestination> = listOf(
+        NavigationDestination("Catalog", Icons.Default.Home),
+        NavigationDestination("Profile", Icons.Default.Person),
+        NavigationDestination("Settings", Icons.Default.Settings)
+    ),
+    content: @Composable () -> Unit
+) {
+    Row(modifier = modifier.fillMaxSize()) {
+        // 1. Expanded Screen (> 840dp): Permanent Navigation Drawer
+        if (windowSizeClass.isExpanded) {
+            PermanentDrawerSheet(modifier = Modifier.width(240.dp)) {
+                Spacer(Modifier.height(16.dp))
+                destinations.forEachIndexed { index, dest ->
+                    NavigationDrawerItem(
+                        icon = { Icon(dest.icon, contentDescription = dest.title) },
+                        label = { Text(dest.title) },
+                        selected = selectedDestinationIndex == index,
+                        onClick = { onDestinationSelected(index) },
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
+            }
+        }
+
+        // 2. Medium Screen (600dp - 840dp): Compact Navigation Rail
+        if (windowSizeClass.isMedium) {
+            NavigationRail {
+                Spacer(Modifier.height(16.dp))
+                destinations.forEachIndexed { index, dest ->
+                    NavigationRailItem(
+                        icon = { Icon(dest.icon, contentDescription = dest.title) },
+                        label = { Text(dest.title) },
+                        selected = selectedDestinationIndex == index,
+                        onClick = { onDestinationSelected(index) }
+                    )
+                }
+            }
+        }
+
+        // 3. Main Content Area + Compact Bottom Bar (< 600dp)
+        Scaffold(
+            bottomBar = {
+                if (windowSizeClass.isCompact) {
+                    NavigationBar {
+                        destinations.forEachIndexed { index, dest ->
+                            NavigationBarItem(
+                                icon = { Icon(dest.icon, contentDescription = dest.title) },
+                                label = { Text(dest.title) },
+                                selected = selectedDestinationIndex == index,
+                                onClick = { onDestinationSelected(index) }
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                content()
+            }
+        }
+    }
+}
+```
+
+---
+
+## 🗂️ 4. Canonical List-Detail Two-Pane Pattern
+
+On tablets and desktops, display list and detail panes side-by-side. On mobile, navigate sequentially:
+
+```kotlin
+package com.example.app.core.ui.adaptive
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun <T> ListDetailTwoPaneLayout(
+    windowSizeClass: AppWindowSizeClass,
+    selectedItem: T?,
+    listPane: @Composable (isSplitView: Boolean) -> Unit,
+    detailPane: @Composable (item: T) -> Unit,
+    emptyDetailPlaceholder: @Composable () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (windowSizeClass.isTwoPaneEligible) {
+        // Dual-Pane Layout on Tablets, Desktop and Web
+        Row(modifier = modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(0.4f).fillMaxHeight()) {
+                listPane(true)
+            }
+
+            VerticalDivider(modifier = Modifier.fillMaxHeight(), thickness = 1.dp)
+
+            Box(modifier = Modifier.weight(0.6f).fillMaxHeight()) {
+                if (selectedItem != null) {
+                    detailPane(selectedItem)
+                } else {
+                    emptyDetailPlaceholder()
+                }
+            }
+        }
+    } else {
+        // Single-Pane Handset Layout: Display either List or Detail
+        Box(modifier = modifier.fillMaxSize()) {
+            if (selectedItem != null) {
+                detailPane(selectedItem)
+            } else {
+                listPane(false)
+            }
+        }
+    }
+}
+```
+
+---
+
+## 🚫 5. Adaptive Layout Anti-Patterns
+
+| Anti-Pattern | Root Problem | Correct Architecture |
+|---|---|---|
+| **Relying on Physical Screen Resolution** | Assuming devices are always full-screen fails on foldable fold/unfold, Android multi-window split, or Desktop resizing. | Query the dynamic Composable window bounds via `BoxWithConstraints` or `WindowMetrics`. |
+| **Hiding Critical Navigation Items** | Removing essential features from mobile Compact views because "there isn't enough space". | Keep identical feature access; transform layout presentation (e.g. overflow menu / modal sheets). |
+| **Forgetting Desktop Window Resizing** | Hardcoding desktop initial window sizes without testing dynamic collapse down to mobile widths. | Test Desktop windows resizing continuously from 400dp up to 3840dp 4K. |
+| **Hardcoding 2-Pane Split Percentages** | Setting `weight(0.5f)` on small screens creates cramped, unreadable text columns. | Only enable side-by-side panes when `windowWidth >= 840.dp`. |
