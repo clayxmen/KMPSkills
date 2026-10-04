@@ -82,14 +82,15 @@ For full documentation and screenshots, visit [`plugins/android-studio`](plugins
 The project strictly adheres to **Clean Architecture** blended with **Feature-First Domain-Driven Design (DDD)** and **Unidirectional Data Flow (MVI)**:
 
 ```mermaid
-graph TD
-    subgraph Presentation Layer
+flowchart TD
+    subgraph Presentation ["Presentation Layer"]
         UI["Compose Multiplatform UI (Screens & Atomic Components)"]
         VM["Lifecycle-Aware ViewModel (StateFlow + Channel Effects)"]
-        UI <-->|MVI Loop (UiState / UiIntent / UiEffect)| VM
+        UI -->|"UiIntent (User Actions)"| VM
+        VM -->|"UiState & UiEffect"| UI
     end
 
-    subgraph Domain Layer (Pure Kotlin)
+    subgraph Domain ["Domain Layer (Pure Kotlin)"]
         UC["UseCases (Single Responsibility)"]
         Entity["Pure Domain Entities"]
         RepoInterface["Abstract Repository Interfaces"]
@@ -98,13 +99,13 @@ graph TD
         UC --> Entity
     end
 
-    subgraph Data Layer
+    subgraph Data ["Data Layer"]
         RepoImpl["Repository Implementations"]
         RemoteDS["Remote DataSource (Ktor Client 3.x)"]
         LocalDS["Local DataSource (Room KMP 2.7+ / DataStore)"]
         Outbox["Mutation Outbox Pattern (Offline Sync)"]
         
-        RepoInterface <|.. RepoImpl
+        RepoImpl -.->|"implements"| RepoInterface
         RepoImpl --> RemoteDS
         RepoImpl --> LocalDS
         RepoImpl --> Outbox

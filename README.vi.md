@@ -84,14 +84,15 @@ Xem hướng dẫn chi tiết và cách tùy biến tại [`plugins/android-stud
 Dự án tuân thủ nghiêm ngặt **Kiến trúc Clean Architecture** phối hợp cùng **Mô hình Dữ liệu Đơn Luồng (Unidirectional Data Flow - MVI)**:
 
 ```mermaid
-graph TD
-    subgraph Tầng Trình Diễn (Presentation Layer)
+flowchart TD
+    subgraph Presentation ["Tầng Trình Diễn (Presentation Layer)"]
         UI["Compose Multiplatform UI (Screens & Atomic Components)"]
         VM["Lifecycle-Aware ViewModel (StateFlow + Channel Effects)"]
-        UI <-->|Vòng lặp MVI (UiState / UiIntent / UiEffect)| VM
+        UI -->|"UiIntent (Ý định thao tác)"| VM
+        VM -->|"UiState & UiEffect"| UI
     end
 
-    subgraph Tầng Nghiệp Vụ (Domain Layer - Pure Kotlin)
+    subgraph Domain ["Tầng Nghiệp Vụ (Domain Layer - Pure Kotlin)"]
         UC["UseCases (Đơn nhiệm, Single Responsibility)"]
         Entity["Thực Thể Nghiệp Vụ (Domain Entities Bất Biến)"]
         RepoInterface["Giao Diện Kho Dữ Liệu (Abstract Repository)"]
@@ -100,13 +101,13 @@ graph TD
         UC --> Entity
     end
 
-    subgraph Tầng Dữ Liệu (Data Layer)
+    subgraph Data ["Tầng Dữ Liệu (Data Layer)"]
         RepoImpl["Triển Khai Repository (Repository Implementations)"]
         RemoteDS["Nguồn Dữ Liệu Từ Xa (Ktor Client 3.x)"]
         LocalDS["Nguồn Dữ Liệu Cục Bộ (Room KMP 2.7+ / DataStore)"]
         Outbox["Mô Hình Mutation Outbox (Đồng Bộ Khi Mất Mạng)"]
         
-        RepoInterface <|.. RepoImpl
+        RepoImpl -.->|"triển khai"| RepoInterface
         RepoImpl --> RemoteDS
         RepoImpl --> LocalDS
         RepoImpl --> Outbox

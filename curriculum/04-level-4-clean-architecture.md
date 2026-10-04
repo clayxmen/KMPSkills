@@ -43,7 +43,7 @@ graph TD
     VM --> UC
     UC --> Port
     UC --> Entity
-    Port <|.. Adapter
+    Adapter -.->|"triển khai"| Port
     Adapter --> DB
     Adapter --> Net
 ```

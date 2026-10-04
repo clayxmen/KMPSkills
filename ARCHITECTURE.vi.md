@@ -51,7 +51,7 @@ graph TD
     VM --> UC
     UC --> Models
     UC --> Repos
-    Repos <|-- RepoImpl
+    RepoImpl -.->|"triển khai"| Repos
     RepoImpl --> LocalDB
     RepoImpl --> RemoteNet
     RepoImpl --> Outbox
